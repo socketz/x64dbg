@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
+    <width>868</width>
     <height>600</height>
    </rect>
   </property>
@@ -22,7 +22,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>800</width>
+     <width>868</width>
      <height>21</height>
     </rect>
    </property>
@@ -30,16 +30,40 @@
     <property name="title">
      <string>&amp;File</string>
     </property>
-    <widget class="QMenu" name="menuRecent_Files">
+    <widget class="QMenu" name="menuRecentFiles">
      <property name="title">
       <string>&amp;Recent Files</string>
      </property>
+     <property name="icon">
+      <iconset resource="../../resource.qrc">
+       <normaloff>:/icons/images/recentfiles.png</normaloff>:/icons/images/recentfiles.png</iconset>
+     </property>
      <addaction name="separator"/>
     </widget>
+    <widget class="QMenu" name="menuDatabase">
+     <property name="title">
+      <string>Database</string>
+     </property>
+     <property name="icon">
+      <iconset resource="../../resource.qrc">
+       <normaloff>:/icons/images/data-copy.png</normaloff>:/icons/images/data-copy.png</iconset>
+     </property>
+     <addaction name="actionDbsave"/>
+     <addaction name="actionDbload"/>
+     <addaction name="actionDbrecovery"/>
+     <addaction name="actionDbclear"/>
+     <addaction name="separator"/>
+     <addaction name="actionImportdatabase"/>
+     <addaction name="actionExportdatabase"/>
+    </widget>
     <addaction name="actionOpen"/>
-    <addaction name="menuRecent_Files"/>
+    <addaction name="menuRecentFiles"/>
     <addaction name="actionAttach"/>
     <addaction name="actionDetach"/>
+    <addaction name="menuDatabase"/>
+    <addaction name="actionPatches"/>
+    <addaction name="actionChangeCommandLine"/>
+    <addaction name="actionRestartAdmin"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
    </widget>
@@ -49,41 +73,77 @@
     </property>
     <addaction name="actionCpu"/>
     <addaction name="actionLog"/>
+    <addaction name="actionNotes"/>
     <addaction name="actionBreakpoints"/>
     <addaction name="actionMemoryMap"/>
     <addaction name="actionCallStack"/>
+    <addaction name="actionSEHChain"/>
     <addaction name="actionScript"/>
     <addaction name="actionSymbolInfo"/>
+    <addaction name="actionModules"/>
     <addaction name="actionSource"/>
     <addaction name="actionReferences"/>
     <addaction name="actionThreads"/>
+    <addaction name="actionHandles"/>
+    <addaction name="actionGraph"/>
+    <addaction name="actionTrace"/>
     <addaction name="actionPatches"/>
     <addaction name="actionComments"/>
     <addaction name="actionLabels"/>
     <addaction name="actionBookmarks"/>
     <addaction name="actionFunctions"/>
+    <addaction name="actionVariables"/>
+    <addaction name="actionCommand"/>
+    <addaction name="separator"/>
+    <addaction name="actionPreviousTab"/>
+    <addaction name="actionNextTab"/>
+    <addaction name="actionPreviousView"/>
+    <addaction name="actionNextView"/>
+    <addaction name="actionHideTab"/>
    </widget>
    <widget class="QMenu" name="menuDebug">
     <property name="title">
      <string>&amp;Debug</string>
     </property>
+    <widget class="QMenu" name="menuAdvanced">
+     <property name="title">
+      <string>Advanced</string>
+     </property>
+     <property name="icon">
+      <iconset resource="../../resource.qrc">
+       <normaloff>:/icons/images/branchpreview.png</normaloff>:/icons/images/branchpreview.png</iconset>
+     </property>
+     <addaction name="actioneRun"/>
+     <addaction name="actionseRun"/>
+     <addaction name="actionRunExpression"/>
+     <addaction name="separator"/>
+     <addaction name="actioneStepInto"/>
+     <addaction name="actionseStepInto"/>
+     <addaction name="actionStepIntoSource"/>
+     <addaction name="actioneStepOver"/>
+     <addaction name="actionseStepOver"/>
+     <addaction name="actionStepOverSource"/>
+     <addaction name="separator"/>
+     <addaction name="actioneRtr"/>
+     <addaction name="actionSkipNextInstruction"/>
+     <addaction name="actionInstrUndo"/>
+     <addaction name="separator"/>
+     <addaction name="actionHideDebugger"/>
+    </widget>
     <addaction name="actionRun"/>
-    <addaction name="actioneRun"/>
     <addaction name="actionRunSelection"/>
     <addaction name="actionPause"/>
     <addaction name="actionRestart"/>
     <addaction name="actionClose"/>
-    <addaction name="actionChangeCommandLine"/>
     <addaction name="separator"/>
     <addaction name="actionStepInto"/>
-    <addaction name="actioneStepInto"/>
     <addaction name="actionStepOver"/>
-    <addaction name="actioneStepOver"/>
-    <addaction name="actionRtr"/>
-    <addaction name="actioneRtr"/>
-    <addaction name="actionSkipNextInstruction"/>
     <addaction name="separator"/>
-    <addaction name="actionCommand"/>
+    <addaction name="actionRtr"/>
+    <addaction name="actionRtu"/>
+    <addaction name="separator"/>
+    <addaction name="separator"/>
+    <addaction name="menuAdvanced"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -91,11 +151,16 @@
     </property>
     <addaction name="actionCalculator"/>
     <addaction name="actionCheckUpdates"/>
+    <addaction name="actionBlog"/>
     <addaction name="actionDonate"/>
     <addaction name="actionReportBug"/>
+    <addaction name="actionPlugins"/>
     <addaction name="separator"/>
     <addaction name="actionManual"/>
+    <addaction name="actionFaq"/>
     <addaction name="actionAbout"/>
+    <addaction name="separator"/>
+    <addaction name="actionCrashDump"/>
    </widget>
    <widget class="QMenu" name="menuPlugins">
     <property name="title">
@@ -107,19 +172,74 @@
     <property name="title">
      <string>&amp;Options</string>
     </property>
+    <widget class="QMenu" name="menuTheme">
+     <property name="title">
+      <string>&amp;Theme</string>
+     </property>
+     <property name="icon">
+      <iconset resource="../../resource.qrc">
+       <normaloff>:/icons/images/themes.png</normaloff>:/icons/images/themes.png</iconset>
+     </property>
+     <addaction name="actionDefaultTheme"/>
+    </widget>
     <addaction name="actionSettings"/>
     <addaction name="actionAppearance"/>
     <addaction name="actionShortcuts"/>
+    <addaction name="actionCustomizeMenus"/>
     <addaction name="actionTopmost"/>
+    <addaction name="actionReloadStylesheet"/>
+    <addaction name="actionSetInitializationScript"/>
+    <addaction name="actionImportSettings"/>
+    <addaction name="menuTheme"/>
+   </widget>
+   <widget class="QMenu" name="menuFavourites">
+    <property name="title">
+     <string>Favour&amp;ites</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menu_Trace">
+    <property name="title">
+     <string>Traci&amp;ng</string>
+    </property>
+    <widget class="QMenu" name="menuTrace_record">
+     <property name="title">
+      <string>Trace record</string>
+     </property>
+     <property name="icon">
+      <iconset resource="../../resource.qrc">
+       <normaloff>:/icons/images/trace.png</normaloff>:/icons/images/trace.png</iconset>
+     </property>
+     <addaction name="actionTRBit"/>
+     <addaction name="actionTRByte"/>
+     <addaction name="actionTRWord"/>
+     <addaction name="actionTRNone"/>
+     <addaction name="separator"/>
+     <addaction name="actionTRTIBT"/>
+     <addaction name="actionTRTOBT"/>
+     <addaction name="actionTRTIIT"/>
+     <addaction name="actionTRTOIT"/>
+    </widget>
+    <addaction name="actionAnimateInto"/>
+    <addaction name="actionAnimateOver"/>
+    <addaction name="actionAnimateCommand"/>
+    <addaction name="separator"/>
+    <addaction name="actionTicnd"/>
+    <addaction name="actionTocnd"/>
+    <addaction name="menuTrace_record"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuView"/>
    <addaction name="menuDebug"/>
+   <addaction name="menu_Trace"/>
    <addaction name="menuPlugins"/>
+   <addaction name="menuFavourites"/>
    <addaction name="menuOptions"/>
    <addaction name="menuHelp"/>
   </widget>
   <widget class="QToolBar" name="mainToolBar">
+   <property name="windowTitle">
+    <string>Toolbar</string>
+   </property>
    <property name="movable">
     <bool>false</bool>
    </property>
@@ -145,18 +265,11 @@
    <addaction name="actionStepInto"/>
    <addaction name="actionStepOver"/>
    <addaction name="separator"/>
-   <addaction name="actionRtr"/>
+   <addaction name="actionTicnd"/>
+   <addaction name="actionTocnd"/>
    <addaction name="separator"/>
-   <addaction name="actionCpu"/>
-   <addaction name="actionLog"/>
-   <addaction name="actionBreakpoints"/>
-   <addaction name="actionMemoryMap"/>
-   <addaction name="actionCallStack"/>
-   <addaction name="actionScript"/>
-   <addaction name="actionSymbolInfo"/>
-   <addaction name="actionSource"/>
-   <addaction name="actionReferences"/>
-   <addaction name="actionThreads"/>
+   <addaction name="actionRtr"/>
+   <addaction name="actionRtu"/>
    <addaction name="separator"/>
    <addaction name="actionScylla"/>
    <addaction name="separator"/>
@@ -165,15 +278,13 @@
    <addaction name="actionLabels"/>
    <addaction name="actionBookmarks"/>
    <addaction name="actionFunctions"/>
+   <addaction name="actionVariables"/>
    <addaction name="separator"/>
    <addaction name="actionStrings"/>
    <addaction name="actionCalls"/>
    <addaction name="separator"/>
    <addaction name="actionCalculator"/>
    <addaction name="actionCheckUpdates"/>
-   <addaction name="actionDonate"/>
-   <addaction name="actionReportBug"/>
-   <addaction name="actionAbout"/>
   </widget>
   <widget class="QStatusBar" name="statusBar">
    <property name="sizeGripEnabled">
@@ -182,7 +293,7 @@
   </widget>
   <widget class="QToolBar" name="cmdBar">
    <property name="windowTitle">
-    <string>toolBar</string>
+    <string>CommandBar</string>
    </property>
    <property name="movable">
     <bool>false</bool>
@@ -338,7 +449,7 @@
      <normaloff>:/icons/images/arrow-step-into.png</normaloff>:/icons/images/arrow-step-into.png</iconset>
    </property>
    <property name="text">
-    <string>Step into (skip exceptions)</string>
+    <string>Step into (pass exceptions)</string>
    </property>
   </action>
   <action name="actioneStepOver">
@@ -347,7 +458,7 @@
      <normaloff>:/icons/images/arrow-step-over.png</normaloff>:/icons/images/arrow-step-over.png</iconset>
    </property>
    <property name="text">
-    <string>Step over (skip exceptions)</string>
+    <string>Step over (pass exceptions)</string>
    </property>
   </action>
   <action name="actioneRun">
@@ -356,7 +467,7 @@
      <normaloff>:/icons/images/arrow-run.png</normaloff>:/icons/images/arrow-run.png</iconset>
    </property>
    <property name="text">
-    <string>Run (&amp;skip exceptions)</string>
+    <string>Run (pass exceptions)</string>
    </property>
   </action>
   <action name="actioneRtr">
@@ -365,7 +476,7 @@
      <normaloff>:/icons/images/arrow-step-rtr.png</normaloff>:/icons/images/arrow-step-rtr.png</iconset>
    </property>
    <property name="text">
-    <string>Execute till return (skip exceptions)</string>
+    <string>Execute till return (pass exceptions)</string>
    </property>
   </action>
   <action name="actionScript">
@@ -395,7 +506,7 @@
   <action name="actionCpu">
    <property name="icon">
     <iconset resource="../../resource.qrc">
-     <normaloff>:/icons/images/processor-cpu.png</normaloff>:/icons/images/processor-cpu.png</iconset>
+     <normaloff>:/icons/images/processor64.png</normaloff>:/icons/images/processor64.png</iconset>
    </property>
    <property name="text">
     <string>&amp;CPU</string>
@@ -491,7 +602,7 @@
      <normaloff>:/icons/images/patch.png</normaloff>:/icons/images/patch.png</iconset>
    </property>
    <property name="text">
-    <string>Patches</string>
+    <string>Patch file...</string>
    </property>
    <property name="toolTip">
     <string>Patches</string>
@@ -675,6 +786,481 @@
    </property>
    <property name="text">
     <string>&amp;Manual</string>
+   </property>
+  </action>
+  <action name="actionFaq">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/faq.png</normaloff>:/icons/images/faq.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;FAQ</string>
+   </property>
+   <property name="toolTip">
+    <string>FAQ</string>
+   </property>
+  </action>
+  <action name="actionSEHChain">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/seh-chain.png</normaloff>:/icons/images/seh-chain.png</iconset>
+   </property>
+   <property name="text">
+    <string>SEH Chain</string>
+   </property>
+  </action>
+  <action name="actionHideDebugger">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/hide-debugger.png</normaloff>:/icons/images/hide-debugger.png</iconset>
+   </property>
+   <property name="text">
+    <string>Hide debugger (PEB)</string>
+   </property>
+   <property name="toolTip">
+    <string>Hide debugger (PEB)</string>
+   </property>
+  </action>
+  <action name="actionReloadStylesheet">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/css.png</normaloff>:/icons/images/css.png</iconset>
+   </property>
+   <property name="text">
+    <string>Reload style.css</string>
+   </property>
+   <property name="toolTip">
+    <string>Reload style.css</string>
+   </property>
+  </action>
+  <action name="actionNotes">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/notes.png</normaloff>:/icons/images/notes.png</iconset>
+   </property>
+   <property name="text">
+    <string>Notes</string>
+   </property>
+  </action>
+  <action name="actionHandles">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/handles.png</normaloff>:/icons/images/handles.png</iconset>
+   </property>
+   <property name="text">
+    <string>Handles</string>
+   </property>
+  </action>
+  <action name="actionTocnd">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/traceover.png</normaloff>:/icons/images/traceover.png</iconset>
+   </property>
+   <property name="text">
+    <string>Trace over...</string>
+   </property>
+   <property name="toolTip">
+    <string>Trace over...</string>
+   </property>
+  </action>
+  <action name="actionTicnd">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/traceinto.png</normaloff>:/icons/images/traceinto.png</iconset>
+   </property>
+   <property name="text">
+    <string>Trace into...</string>
+   </property>
+   <property name="toolTip">
+    <string>Trace into...</string>
+   </property>
+  </action>
+  <action name="actionTRBit">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/bit.png</normaloff>:/icons/images/bit.png</iconset>
+   </property>
+   <property name="text">
+    <string>Bit</string>
+   </property>
+  </action>
+  <action name="actionTRByte">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/byte.png</normaloff>:/icons/images/byte.png</iconset>
+   </property>
+   <property name="text">
+    <string>Byte</string>
+   </property>
+  </action>
+  <action name="actionTRWord">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/word.png</normaloff>:/icons/images/word.png</iconset>
+   </property>
+   <property name="text">
+    <string>Word</string>
+   </property>
+  </action>
+  <action name="actionTRTIBT">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/traceinto.png</normaloff>:/icons/images/traceinto.png</iconset>
+   </property>
+   <property name="text">
+    <string>Trace into beyond trace record</string>
+   </property>
+  </action>
+  <action name="actionTRTOBT">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/traceover.png</normaloff>:/icons/images/traceover.png</iconset>
+   </property>
+   <property name="text">
+    <string>Trace over beyond trace record</string>
+   </property>
+  </action>
+  <action name="actionTRTIIT">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/arrow-step-into.png</normaloff>:/icons/images/arrow-step-into.png</iconset>
+   </property>
+   <property name="text">
+    <string>Trace into into trace record</string>
+   </property>
+  </action>
+  <action name="actionTRTOIT">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/arrow-step-over.png</normaloff>:/icons/images/arrow-step-over.png</iconset>
+   </property>
+   <property name="text">
+    <string>Trace over into trace record</string>
+   </property>
+  </action>
+  <action name="actionTRNone">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/close-all-tabs.png</normaloff>:/icons/images/close-all-tabs.png</iconset>
+   </property>
+   <property name="text">
+    <string>None</string>
+   </property>
+  </action>
+  <action name="actionRtu">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/runtouser.png</normaloff>:/icons/images/runtouser.png</iconset>
+   </property>
+   <property name="text">
+    <string>Run to &amp;user code</string>
+   </property>
+  </action>
+  <action name="actionRunExpression">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/arrow-run-cursor.png</normaloff>:/icons/images/arrow-run-cursor.png</iconset>
+   </property>
+   <property name="text">
+    <string>Run until e&amp;xpression</string>
+   </property>
+  </action>
+  <action name="actionInstrUndo">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/undo.png</normaloff>:/icons/images/undo.png</iconset>
+   </property>
+   <property name="text">
+    <string>Undo last instruction</string>
+   </property>
+  </action>
+  <action name="actionCrashDump">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/crash_dump.png</normaloff>:/icons/images/crash_dump.png</iconset>
+   </property>
+   <property name="text">
+    <string>Generate crash dump</string>
+   </property>
+  </action>
+  <action name="actionManageFavourite">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/star.png</normaloff>:/icons/images/star.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Manage Favourite Tools...</string>
+   </property>
+  </action>
+  <action name="actionStepOverSource">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/arrow-step-over.png</normaloff>:/icons/images/arrow-step-over.png</iconset>
+   </property>
+   <property name="text">
+    <string>Step over (source)</string>
+   </property>
+  </action>
+  <action name="actionStepIntoSource">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/arrow-step-into.png</normaloff>:/icons/images/arrow-step-into.png</iconset>
+   </property>
+   <property name="text">
+    <string>Step into (source)</string>
+   </property>
+  </action>
+  <action name="actionGraph">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/graph.png</normaloff>:/icons/images/graph.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Graph</string>
+   </property>
+  </action>
+  <action name="actionseStepInto">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/arrow-step-into.png</normaloff>:/icons/images/arrow-step-into.png</iconset>
+   </property>
+   <property name="text">
+    <string>Step into (swallow exception)</string>
+   </property>
+  </action>
+  <action name="actionseStepOver">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/arrow-step-over.png</normaloff>:/icons/images/arrow-step-over.png</iconset>
+   </property>
+   <property name="text">
+    <string>Step over (swallow exception)</string>
+   </property>
+  </action>
+  <action name="actionseRun">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/arrow-run.png</normaloff>:/icons/images/arrow-run.png</iconset>
+   </property>
+   <property name="text">
+    <string>Run (swallow exception)</string>
+   </property>
+  </action>
+  <action name="actionBlog">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/hex.png</normaloff>:/icons/images/hex.png</iconset>
+   </property>
+   <property name="text">
+    <string>Blog</string>
+   </property>
+  </action>
+  <action name="actionAnimateInto">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/animateinto.png</normaloff>:/icons/images/animateinto.png</iconset>
+   </property>
+   <property name="text">
+    <string>Animate into</string>
+   </property>
+  </action>
+  <action name="actionAnimateOver">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/animateover.png</normaloff>:/icons/images/animateover.png</iconset>
+   </property>
+   <property name="text">
+    <string>Animate over</string>
+   </property>
+  </action>
+  <action name="actionAnimateCommand">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/animatecommand.png</normaloff>:/icons/images/animatecommand.png</iconset>
+   </property>
+   <property name="text">
+    <string>Animate command...</string>
+   </property>
+  </action>
+  <action name="actionSetInitializationScript">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/initscript.png</normaloff>:/icons/images/initscript.png</iconset>
+   </property>
+   <property name="text">
+    <string>System breakpoint scripts</string>
+   </property>
+  </action>
+  <action name="actionImportSettings">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/importsettings.png</normaloff>:/icons/images/importsettings.png</iconset>
+   </property>
+   <property name="text">
+    <string>Import settings...</string>
+   </property>
+  </action>
+  <action name="actionCustomizeMenus">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/analysis.png</normaloff>:/icons/images/analysis.png</iconset>
+   </property>
+   <property name="text">
+    <string>Customize menus</string>
+   </property>
+  </action>
+  <action name="actionImportdatabase">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/database-import.png</normaloff>:/icons/images/database-import.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Import database</string>
+   </property>
+  </action>
+  <action name="actionExportdatabase">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/database-export.png</normaloff>:/icons/images/database-export.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Export database</string>
+   </property>
+  </action>
+  <action name="actionPreviousTab">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/previous.png</normaloff>:/icons/images/previous.png</iconset>
+   </property>
+   <property name="text">
+    <string>Previous Tab</string>
+   </property>
+  </action>
+  <action name="actionNextTab">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/next.png</normaloff>:/icons/images/next.png</iconset>
+   </property>
+   <property name="text">
+    <string>Next Tab</string>
+   </property>
+  </action>
+  <action name="actionPreviousView">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/previous.png</normaloff>:/icons/images/previous.png</iconset>
+   </property>
+   <property name="text">
+    <string>Previous View</string>
+   </property>
+  </action>
+  <action name="actionNextView">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/next.png</normaloff>:/icons/images/next.png</iconset>
+   </property>
+   <property name="text">
+    <string>Next View</string>
+   </property>
+  </action>
+  <action name="actionHideTab">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/hidetab.png</normaloff>:/icons/images/hidetab.png</iconset>
+   </property>
+   <property name="text">
+    <string>Hide Tab</string>
+   </property>
+  </action>
+  <action name="actionVariables">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/variables.png</normaloff>:/icons/images/variables.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Variables</string>
+   </property>
+  </action>
+  <action name="actionRestartAdmin">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/uac.png</normaloff>:/icons/images/uac.png</iconset>
+   </property>
+   <property name="text">
+    <string>Restart as Admin</string>
+   </property>
+  </action>
+  <action name="actionPlugins">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/plugin.png</normaloff>:/icons/images/plugin.png</iconset>
+   </property>
+   <property name="text">
+    <string>Plugins</string>
+   </property>
+  </action>
+  <action name="actionTrace">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/trace.png</normaloff>:/icons/images/trace.png</iconset>
+   </property>
+   <property name="text">
+    <string>Trace</string>
+   </property>
+  </action>
+  <action name="actionModules">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/lib.png</normaloff>:/icons/images/lib.png</iconset>
+   </property>
+   <property name="text">
+    <string>Modules</string>
+   </property>
+  </action>
+  <action name="action_Theme">
+   <property name="text">
+    <string>&amp;Theme</string>
+   </property>
+  </action>
+  <action name="actionDefaultTheme">
+   <property name="text">
+    <string>&amp;Default</string>
+   </property>
+  </action>
+  <action name="actionDbsave">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/binary_save.png</normaloff>:/icons/images/binary_save.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Save database</string>
+   </property>
+  </action>
+  <action name="actionDbload">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/arrow-restart.png</normaloff>:/icons/images/arrow-restart.png</iconset>
+   </property>
+   <property name="text">
+    <string>Re&amp;load database</string>
+   </property>
+  </action>
+  <action name="actionDbrecovery">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/help.png</normaloff>:/icons/images/help.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Restore backup database</string>
+   </property>
+  </action>
+  <action name="actionDbclear">
+   <property name="icon">
+    <iconset resource="../../resource.qrc">
+     <normaloff>:/icons/images/crash_dump.png</normaloff>:/icons/images/crash_dump.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Clear database</string>
    </property>
   </action>
  </widget>

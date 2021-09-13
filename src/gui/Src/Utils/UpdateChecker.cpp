@@ -4,53 +4,51 @@
 #include <QMessageBox>
 #include <QNetworkReply>
 #include <QIcon>
+#include <QDateTime>
 #include "Bridge.h"
+#include "StringUtil.h"
+#include "MiscUtil.h"
 
 UpdateChecker::UpdateChecker(QWidget* parent)
+    : QNetworkAccessManager(parent),
+      mParent(parent)
 {
-    mParent = parent;
     connect(this, SIGNAL(finished(QNetworkReply*)), this, SLOT(finishedSlot(QNetworkReply*)));
 }
 
 void UpdateChecker::checkForUpdates()
 {
-    get(QNetworkRequest(QUrl("http://x64dbg.com/version.txt")));
+    get(QNetworkRequest(QUrl("https://api.github.com/repos/x64dbg/x64dbg/releases/latest")));
 }
 
 void UpdateChecker::finishedSlot(QNetworkReply* reply)
 {
     if(reply->error() != QNetworkReply::NoError) //error
     {
-        QMessageBox msg(QMessageBox::Critical, "Network Error!", reply->errorString());
-        msg.setParent(mParent, Qt::Dialog);
-        msg.setWindowIcon(QIcon(":/icons/images/compile-error.png"));
-        msg.setWindowFlags(msg.windowFlags() & (~Qt::WindowContextHelpButtonHint));
-        msg.exec();
+        SimpleErrorBox(mParent, tr("Network Error!"), reply->errorString());
         return;
     }
-    bool ok = false;
-    int version = QString(reply->readAll()).toInt(&ok);
+    QString json = QString(reply->readAll());
     reply->close();
-    if(!ok)
+    QRegExp regExp("\"published_at\": ?\"([^\"]+)\"");
+    QDateTime serverTime;
+    if(regExp.indexIn(json) >= 0)
+        serverTime = QDateTime::fromString(regExp.cap(1), Qt::ISODate);
+    if(!serverTime.isValid())
     {
-        QMessageBox msg(QMessageBox::Critical, "Error!", "File on server could not be parsed...");
-        msg.setParent(mParent);
-        msg.setWindowIcon(QIcon(":/icons/images/compile-error.png"));
-        msg.setWindowFlags(msg.windowFlags() & (~Qt::WindowContextHelpButtonHint));
-        msg.exec();
+        SimpleErrorBox(mParent, tr("Error!"), tr("File on server could not be parsed..."));
         return;
     }
+    QRegExp regUrl("\"browser_download_url\": ?\"([^\"]+)\"");
+    auto url = regUrl.indexIn(json) >= 0 ? regUrl.cap(1) : "http://releases.x64dbg.com";
+    auto server = serverTime.date();
+    auto build = GetCompileDate();
     QString info;
-    int dbgVersion = BridgeGetDbgVersion();
-    if(version > dbgVersion)
-        info = QString().sprintf("New version v%d available!\nDownload at http://x64dbg.com\n\nYou are now on version v%d", version, dbgVersion);
-    else if(version < dbgVersion)
-        info = QString().sprintf("You have a development version (v%d) of x64dbg!", dbgVersion);
+    if(server > build)
+        info = QString(tr("New build %1 available!<br>Download <a href=\"%2\">here</a><br><br>You are now on build %3")).arg(ToDateString(server)).arg(url).arg(ToDateString(build));
+    else if(server < build)
+        info = QString(tr("You have a development build (%1) of x64dbg!")).arg(ToDateString(build));
     else
-        info = QString().sprintf("You have the latest version (%d) of x64dbg!", version);
-    QMessageBox msg(QMessageBox::Information, "Information", info);
-    msg.setWindowIcon(QIcon(":/icons/images/information.png"));
-    msg.setParent(mParent, Qt::Dialog);
-    msg.setWindowFlags(msg.windowFlags() & (~Qt::WindowContextHelpButtonHint));
-    msg.exec();
+        info = QString(tr("You have the latest build (%1) of x64dbg!")).arg(ToDateString(build));
+    SimpleInfoBox(mParent, tr("Information"), info);
 }

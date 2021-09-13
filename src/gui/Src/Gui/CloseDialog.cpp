@@ -1,16 +1,19 @@
 #include "CloseDialog.h"
 #include "ui_CloseDialog.h"
+#include "MiscUtil.h"
+#include <QCloseEvent>
 
 CloseDialog::CloseDialog(QWidget* parent) : QDialog(parent), ui(new Ui::CloseDialog)
 {
     ui->setupUi(this);
     setModal(true);
-#if QT_VERSION < QT_VERSION_CHECK(5,0,0)
-    setWindowFlags((Qt::Tool | Qt::WindowSystemMenuHint | Qt::WindowTitleHint | Qt::MSWindowsFixedSizeDialogHint) & ~Qt::WindowCloseButtonHint);
-#endif
-    setFixedSize(this->size()); //fixed size
-    //setWindowFlags(((windowFlags() | Qt::CustomizeWindowHint) & ~Qt::WindowCloseButtonHint));
+    setWindowFlags(windowFlags() & ~(Qt::WindowContextHelpButtonHint | Qt::WindowCloseButtonHint) | Qt::MSWindowsFixedSizeDialogHint);
+    SetApplicationIcon(QDialog::winId());
     bCanClose = false;
+    // Resize window
+    int requiredWidth = ui->label->fontMetrics().boundingRect(ui->label->text()).width();
+    if(width() < requiredWidth)
+        resize(requiredWidth, height());
 }
 
 CloseDialog::~CloseDialog()

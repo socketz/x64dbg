@@ -3,9 +3,13 @@
 
 #include <QDialog>
 
+class StdIconSearchListView;
+class QMenu;
+class QAction;
+
 namespace Ui
 {
-class AttachDialog;
+    class AttachDialog;
 }
 
 class AttachDialog : public QDialog
@@ -18,13 +22,24 @@ public:
 
 private slots:
     void on_btnAttach_clicked();
+    void on_btnFindWindow_clicked();
     void refresh();
-    void processListContextMenu(const QPoint & pos);
+    void processListContextMenu(QMenu* wMenu);
 
 private:
     Ui::AttachDialog* ui;
+    StdIconSearchListView* mSearchListView;
     QAction* mAttachAction;
     QAction* mRefreshAction;
+
+    enum
+    {
+        ColPid,
+        ColName,
+        ColTitle,
+        ColPath,
+        ColCommandLine,
+    };
 };
 
 #endif // ATTACHDIALOG_H

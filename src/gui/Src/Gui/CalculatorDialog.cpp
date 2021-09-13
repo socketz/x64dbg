@@ -1,33 +1,44 @@
 #include "CalculatorDialog.h"
 #include "ui_CalculatorDialog.h"
+#include "ValidateExpressionThread.h"
 
 CalculatorDialog::CalculatorDialog(QWidget* parent) : QDialog(parent), ui(new Ui::CalculatorDialog)
 {
     ui->setupUi(this);
-#if QT_VERSION < QT_VERSION_CHECK(5,0,0)
-    setWindowFlags(Qt::Dialog | Qt::WindowSystemMenuHint | Qt::WindowTitleHint | Qt::MSWindowsFixedSizeDialogHint);
-#endif
-    setFixedSize(this->size()); //fixed size
+    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint | Qt::MSWindowsFixedSizeDialogHint);
     connect(this, SIGNAL(validAddress(bool)), ui->btnGoto, SLOT(setEnabled(bool)));
+    connect(this, SIGNAL(validAddress(bool)), ui->btnGotoDump, SLOT(setEnabled(bool)));
     emit validAddress(false);
     ui->txtBin->setInputMask(QString("bbbb ").repeated(sizeof(duint) * 2));
     ui->txtExpression->setText("0");
     ui->txtExpression->selectAll();
     ui->txtExpression->setFocus();
     mValidateThread = new ValidateExpressionThread(this);
+    mValidateThread->setOnExpressionChangedCallback(std::bind(&CalculatorDialog::validateExpression, this, std::placeholders::_1));
+
     connect(mValidateThread, SIGNAL(expressionChanged(bool, bool, dsint)), this, SLOT(expressionChanged(bool, bool, dsint)));
     connect(ui->txtExpression, SIGNAL(textChanged(QString)), mValidateThread, SLOT(textChanged(QString)));
 }
 
 CalculatorDialog::~CalculatorDialog()
 {
+    mValidateThread->stop();
+    mValidateThread->wait();
     delete ui;
+}
+
+void CalculatorDialog::validateExpression(QString expression)
+{
+    duint value;
+    bool validExpression = DbgFunctions()->ValFromString(expression.toUtf8().constData(), &value);
+    bool validPointer = validExpression && DbgMemIsValidReadPtr(value);
+    this->mValidateThread->emitExpressionChanged(validExpression, validPointer, value);
 }
 
 void CalculatorDialog::showEvent(QShowEvent* event)
 {
     Q_UNUSED(event);
-    mValidateThread->start(ui->txtExpression->text());
+    mValidateThread->start();
 }
 
 void CalculatorDialog::hideEvent(QHideEvent* event)
@@ -67,22 +78,23 @@ void CalculatorDialog::expressionChanged(bool validExpression, bool validPointer
         ui->txtBin->setText(inFormat(value, N_BIN));
         ui->txtBin->setCursorPosition(cursorpos);
         ui->txtOct->setText(inFormat(value, N_OCT));
-        if((value == (value & 0xFF)))
+        if(value == (value & 0xFF))
         {
-            QChar c = QChar::fromLatin1((char)value);
+            QChar c((ushort)value);
             if(c.isPrint())
-                ui->txtAscii->setText("'" + QString(c) + "'");
+                ui->txtAscii->setText(QString(c));
             else
                 ui->txtAscii->setText("???");
         }
         else
             ui->txtAscii->setText("???");
-        ui->txtAscii->setCursorPosition(1);
-        if((value == (value & 0xFFF)))  //UNICODE?
+        ui->txtAscii->setCursorPosition(0);
+        ui->txtAscii->selectAll();
+        if((value == (value & 0xFFFF))) //UNICODE?
         {
-            QChar c = QChar::fromLatin1((wchar_t)value);
+            QChar c = QChar((ushort)value);
             if(c.isPrint())
-                ui->txtUnicode->setText("L'" + QString(c) + "'");
+                ui->txtUnicode->setText(QString(c));
             else
                 ui->txtUnicode->setText("????");
         }
@@ -90,7 +102,8 @@ void CalculatorDialog::expressionChanged(bool validExpression, bool validPointer
         {
             ui->txtUnicode->setText("????");
         }
-        ui->txtUnicode->setCursorPosition(2);
+        ui->txtUnicode->setCursorPosition(0);
+        ui->txtUnicode->selectAll();
         emit validAddress(validPointer);
     }
 }
@@ -134,14 +147,13 @@ QString CalculatorDialog::inFormat(const duint val, CalculatorDialog::NUMBERFORM
     case N_OCT:
         return QString("%1").arg(val, 1, 8, QChar('0')).toUpper();
     case N_ASCII:
-        return QString("'%1'").arg((char)val);
+        return QString("%1").arg(QChar((ushort)val));
     }
 }
 
 void CalculatorDialog::on_btnGoto_clicked()
 {
-    DbgCmdExecDirect(QString("disasm " + ui->txtExpression->text()).toUtf8().constData());
-    emit showCpu();
+    DbgCmdExecDirect(QString("disasm " + ui->txtExpression->text()));
 }
 
 void CalculatorDialog::on_txtHex_textEdited(const QString & arg1)
@@ -214,27 +226,22 @@ void CalculatorDialog::on_txtBin_textEdited(const QString & arg1)
 void CalculatorDialog::on_txtAscii_textEdited(const QString & arg1)
 {
     QString text = arg1;
-    text = text.replace("'", "");
-    if(text.length() > 1)
-    {
-        ui->txtAscii->setStyleSheet("border: 2px solid red");
-        return;
-    }
     ui->txtAscii->setStyleSheet("");
-    ui->txtExpression->setText(QString().sprintf("%X", text[0].toLatin1()));
-    ui->txtAscii->setCursorPosition(1);
+    ui->txtExpression->setText(QString().sprintf("%X", text[0].unicode()));
+    ui->txtAscii->setCursorPosition(0);
+    ui->txtAscii->selectAll();
 }
 
 void CalculatorDialog::on_txtUnicode_textEdited(const QString & arg1)
 {
     QString text = arg1;
-    text = text.replace("L'", "").replace("'", "");
-    if(text.length() > 1)
-    {
-        ui->txtUnicode->setStyleSheet("border: 2px solid red");
-        return;
-    }
     ui->txtUnicode->setStyleSheet("");
     ui->txtExpression->setText(QString().sprintf("%X", text[0].unicode()));
-    ui->txtUnicode->setCursorPosition(2);
+    ui->txtUnicode->setCursorPosition(0);
+    ui->txtUnicode->selectAll();
+}
+
+void CalculatorDialog::on_btnGotoDump_clicked()
+{
+    DbgCmdExecDirect(QString("dump " + ui->txtExpression->text()));
 }

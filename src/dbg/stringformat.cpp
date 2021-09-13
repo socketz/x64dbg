@@ -1,100 +1,178 @@
 #include "stringformat.h"
 #include "value.h"
+#include "symbolinfo.h"
+#include "module.h"
+#include "disasm_fast.h"
 #include "disasm_helper.h"
+#include "formatfunctions.h"
 
-namespace ValueType
-{
-enum ValueType
+enum class StringValueType
 {
     Unknown,
     SignedDecimal,
     UnsignedDecimal,
     Hex,
     Pointer,
-    String
+    String,
+    AddrInfo,
+    Module,
+    Instruction
 };
-}
 
-static String printValue(FormatValueType value, ValueType::ValueType type)
+static String printValue(FormatValueType value, StringValueType type)
 {
     duint valuint = 0;
-    bool validval = valfromstring(value, &valuint);
-    char result[deflen] = "???";
-    switch(type)
+    char string[MAX_STRING_SIZE] = "";
+    String result = "???";
+    if(valfromstring(value, &valuint))
     {
-    case ValueType::Unknown:
-        break;
-    case ValueType::SignedDecimal:
-        if(validval)
-            sprintf_s(result, "%" fext "d", valuint);
-        break;
-    case ValueType::UnsignedDecimal:
-        if(validval)
-            sprintf_s(result, "%" fext "u", valuint);
-        break;
-    case ValueType::Hex:
-        if(validval)
-            sprintf_s(result, "%" fext "X", valuint);
-        break;
-    case ValueType::Pointer:
-        if(validval)
-            sprintf_s(result, "0x%" fhex, valuint);
-        break;
-    case ValueType::String:
-        if(validval)
+        switch(type)
         {
-            STRING_TYPE strtype;
-            char string[512] = "";
-            if(disasmgetstringat(valuint, &strtype, string, string, 500))
-                strcpy_s(result, string);
+        case StringValueType::Unknown:
+            break;
+#ifdef _WIN64
+        case StringValueType::SignedDecimal:
+            result = StringUtils::sprintf("%lld", valuint);
+            break;
+        case StringValueType::UnsignedDecimal:
+            result = StringUtils::sprintf("%llu", valuint);
+            break;
+        case StringValueType::Hex:
+            result = StringUtils::sprintf("%llX", valuint);
+            break;
+#else //x86
+        case StringValueType::SignedDecimal:
+            result = StringUtils::sprintf("%d", valuint);
+            break;
+        case StringValueType::UnsignedDecimal:
+            result = StringUtils::sprintf("%u", valuint);
+            break;
+        case StringValueType::Hex:
+            result = StringUtils::sprintf("%X", valuint);
+            break;
+#endif //_WIN64
+        case StringValueType::Pointer:
+            result = StringUtils::sprintf("%p", valuint);
+            break;
+        case StringValueType::String:
+            if(disasmgetstringatwrapper(valuint, string, false))
+                result = string;
+            break;
+        case StringValueType::AddrInfo:
+        {
+            auto symbolic = SymGetSymbolicName(valuint);
+            if(disasmgetstringatwrapper(valuint, string, false))
+                result = string;
+            else if(symbolic.length())
+                result = symbolic;
+            else
+                result.clear();
         }
         break;
+        case StringValueType::Module:
+        {
+            char mod[MAX_MODULE_SIZE] = "";
+            ModNameFromAddr(valuint, mod, true);
+            result = mod;
+        }
+        break;
+        case StringValueType::Instruction:
+        {
+            BASIC_INSTRUCTION_INFO info;
+            if(!disasmfast(valuint, &info, true))
+                result = "???";
+            else
+                result = info.instruction;
+        }
+        break;
+        default:
+            break;
+        }
     }
     return result;
 }
 
-static unsigned int getArgNumType(const String & formatString, ValueType::ValueType & type)
+static bool typeFromCh(char ch, StringValueType & type)
 {
-    int add = 0;
-    switch(formatString[0])
+    switch(ch)
     {
     case 'd':
-        type = ValueType::SignedDecimal;
-        add++;
+        type = StringValueType::SignedDecimal;
         break;
     case 'u':
-        type = ValueType::UnsignedDecimal;
-        add++;
+        type = StringValueType::UnsignedDecimal;
         break;
     case 'p':
-        type = ValueType::Pointer;
-        add++;
+        type = StringValueType::Pointer;
         break;
     case 's':
-        type = ValueType::String;
-        add++;
+        type = StringValueType::String;
         break;
-    default:
-        type = ValueType::Hex;
+    case 'x':
+        type = StringValueType::Hex;
+        break;
+    case 'a':
+        type = StringValueType::AddrInfo;
+        break;
+    case 'm':
+        type = StringValueType::Module;
+        break;
+    case 'i':
+        type = StringValueType::Instruction;
+        break;
+    default: //invalid format
+        return false;
     }
+    return true;
+}
+
+static const char* getArgExpressionType(const String & formatString, StringValueType & type, String & complexArgs)
+{
+    size_t toSkip = 0;
+    type = StringValueType::Hex;
+    complexArgs.clear();
+    if(formatString.size() > 2 && !isdigit(formatString[0]) && formatString[1] == ':') //simple type
+    {
+        if(!typeFromCh(formatString[0], type))
+            return nullptr;
+        toSkip = 2; //skip '?:'
+    }
+    else if(formatString.size() > 2 && formatString.find('@') != String::npos) //complex type
+    {
+        for(; toSkip < formatString.length(); toSkip++)
+            if(formatString[toSkip] == '@')
+            {
+                toSkip++;
+                break;
+            }
+        complexArgs = formatString.substr(0, toSkip - 1);
+        if(complexArgs.length() == 1 && typeFromCh(complexArgs[0], type))
+            complexArgs.clear();
+    }
+    return formatString.c_str() + toSkip;
+}
+
+static unsigned int getArgNumType(const String & formatString, StringValueType & type)
+{
+    String complexArgs;
+    auto expression = getArgExpressionType(formatString, type, complexArgs);
     unsigned int argnum = 0;
-    if(sscanf(formatString.c_str() + add, "%u", &argnum) != 1)
-        type = ValueType::Unknown;
+    if(!expression || sscanf_s(expression, "%u", &argnum) != 1)
+        type = StringValueType::Unknown;
     return argnum;
 }
 
 static String handleFormatString(const String & formatString, const FormatValueVector & values)
 {
-    ValueType::ValueType type = ValueType::Unknown;
-    unsigned int argnum = getArgNumType(formatString, type);
-    if(argnum < values.size())
+    auto type = StringValueType::Unknown;
+    auto argnum = getArgNumType(formatString, type);
+    if(type != StringValueType::Unknown && argnum < values.size())
         return printValue(values.at(argnum), type);
-    return "[Formatting Error]";
+    return GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "[Formatting Error]"));
 }
 
 String stringformat(String format, const FormatValueVector & values)
 {
-    StringUtils::ReplaceAll(format, "\\n", "\n");
     int len = (int)format.length();
     String output;
     String formatString;
@@ -108,7 +186,7 @@ String stringformat(String format, const FormatValueVector & values)
             i++;
             continue;
         }
-        else if(format[i] == '}' && (i + 1 < len && format[i + 1] == '}'))
+        if(format[i] == '}' && (i + 1 < len && format[i + 1] == '}'))
         {
             output += "}";
             i++;
@@ -136,5 +214,80 @@ String stringformat(String format, const FormatValueVector & values)
     }
     if(inFormatter && formatString.size())
         output += handleFormatString(formatString, values);
+    else if(inFormatter)
+        output += "{";
+    return output;
+}
+
+static String printComplexValue(FormatValueType value, const String & complexArgs)
+{
+    auto split = StringUtils::Split(complexArgs, ';');
+    duint valuint;
+    if(!split.empty() && valfromstring(value, &valuint))
+    {
+        std::vector<char> dest;
+        if(FormatFunctions::Call(dest, split[0], split, valuint))
+            return String(dest.data());
+    }
+    return GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "[Formatting Error]"));
+}
+
+static String handleFormatStringInline(const String & formatString)
+{
+    auto type = StringValueType::Unknown;
+    String complexArgs;
+    auto value = getArgExpressionType(formatString, type, complexArgs);
+    if(!complexArgs.empty())
+        return printComplexValue(value, complexArgs);
+    else if(value && *value)
+        return printValue(value, type);
+    return GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "[Formatting Error]"));
+}
+
+String stringformatinline(String format)
+{
+    int len = (int)format.length();
+    String output;
+    String formatString;
+    bool inFormatter = false;
+    for(int i = 0; i < len; i++)
+    {
+        //handle escaped format sequences "{{" and "}}"
+        if(format[i] == '{' && (i + 1 < len && format[i + 1] == '{'))
+        {
+            output += "{";
+            i++;
+            continue;
+        }
+        if(format[i] == '}' && (i + 1 < len && format[i + 1] == '}'))
+        {
+            output += "}";
+            i++;
+            continue;
+        }
+        //handle actual formatting
+        if(format[i] == '{' && !inFormatter) //opening bracket
+        {
+            inFormatter = true;
+            formatString.clear();
+        }
+        else if(format[i] == '}' && inFormatter) //closing bracket
+        {
+            inFormatter = false;
+            if(formatString.length())
+            {
+                output += handleFormatStringInline(formatString);
+                formatString.clear();
+            }
+        }
+        else if(inFormatter) //inside brackets
+            formatString += format[i];
+        else //outside brackets
+            output += format[i];
+    }
+    if(inFormatter && formatString.size())
+        output += handleFormatStringInline(formatString);
+    else if(inFormatter)
+        output += "{";
     return output;
 }

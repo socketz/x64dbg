@@ -10,11 +10,13 @@
 #include "threading.h"
 #include "module.h"
 
-std::unordered_map<duint, PATCHINFO> patches;
+static std::unordered_map<duint, PATCHINFO> patches;
+static std::unordered_map<DWORD, size_t> lastEnumSize;
 
 bool PatchSet(duint Address, unsigned char OldByte, unsigned char NewByte)
 {
-    ASSERT_DEBUGGING("Export call");
+    if(!DbgIsDebugging())
+        return false;
 
     // Address must be valid
     if(!MemIsValidReadPtr(Address))
@@ -62,7 +64,8 @@ bool PatchSet(duint Address, unsigned char OldByte, unsigned char NewByte)
 
 bool PatchGet(duint Address, PATCHINFO* Patch)
 {
-    ASSERT_DEBUGGING("Export call");
+    if(!DbgIsDebugging())
+        return false;
     SHARED_ACQUIRE(LockPatches);
 
     // Find this specific address in the list
@@ -84,7 +87,8 @@ bool PatchGet(duint Address, PATCHINFO* Patch)
 
 bool PatchDelete(duint Address, bool Restore)
 {
-    ASSERT_DEBUGGING("Export call");
+    if(!DbgIsDebugging())
+        return false;
     EXCLUSIVE_ACQUIRE(LockPatches);
 
     // Do a list lookup with hash
@@ -104,7 +108,8 @@ bool PatchDelete(duint Address, bool Restore)
 
 void PatchDelRange(duint Start, duint End, bool Restore)
 {
-    ASSERT_DEBUGGING("Export call");
+    if(!DbgIsDebugging())
+        return;
 
     // Are all bookmarks going to be deleted?
     // 0x00000000 - 0xFFFFFFFF
@@ -146,7 +151,8 @@ void PatchDelRange(duint Start, duint End, bool Restore)
 
 bool PatchEnum(PATCHINFO* List, size_t* Size)
 {
-    ASSERT_DEBUGGING("Export call");
+    /*if(!DbgIsDebugging())
+        return false;*/
     ASSERT_FALSE(!List && !Size);
     SHARED_ACQUIRE(LockPatches);
 
@@ -154,17 +160,26 @@ bool PatchEnum(PATCHINFO* List, size_t* Size)
     if(Size)
     {
         *Size = patches.size() * sizeof(PATCHINFO);
+        lastEnumSize[GetCurrentThreadId()] = patches.size();
 
         if(!List)
             return true;
     }
 
     // Copy each vector entry to a C-style array
-    for(auto & itr : patches)
+    auto limit = patches.size();
     {
-        *List = itr.second;
-        List->addr += ModBaseFromName(itr.second.mod);;
-        List++;
+        auto lastSizeItr = lastEnumSize.find(GetCurrentThreadId());
+        if(lastSizeItr != lastEnumSize.end())
+        {
+            limit = lastSizeItr->second;
+            lastEnumSize.erase(lastSizeItr);
+        }
+    }
+    for(auto itr = patches.cbegin(); itr != patches.cend() && limit != 0; ++itr, --limit, ++List)
+    {
+        *List = itr->second;
+        List->addr += ModBaseFromName(itr->second.mod);
     }
 
     return true;
@@ -180,7 +195,7 @@ int PatchFile(const PATCHINFO* List, int Count, const char* FileName, char* Erro
     {
         // Notify the user of the error
         if(Error)
-            strcpy_s(Error, MAX_ERROR_SIZE, "No patches to apply");
+            strcpy_s(Error, MAX_ERROR_SIZE, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "No patches to apply")));
 
         return -1;
     }
@@ -195,7 +210,7 @@ int PatchFile(const PATCHINFO* List, int Count, const char* FileName, char* Erro
         if(_stricmp(List[i].mod, moduleName))
         {
             if(Error)
-                sprintf_s(Error, MAX_ERROR_SIZE, "Not all patches are in module %s", moduleName);
+                sprintf_s(Error, MAX_ERROR_SIZE, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Not all patches are in module %s")), moduleName);
 
             return -1;
         }
@@ -207,38 +222,56 @@ int PatchFile(const PATCHINFO* List, int Count, const char* FileName, char* Erro
     if(!moduleBase)
     {
         if(Error)
-            sprintf_s(Error, MAX_ERROR_SIZE, "Failed to get base of module %s", moduleName);
+            sprintf_s(Error, MAX_ERROR_SIZE, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Failed to get base of module %s")), moduleName);
 
         return -1;
     }
 
-    // Get the unicode version of the module's path
-    wchar_t originalName[MAX_PATH];
-
-    if(!GetModuleFileNameExW(fdProcessInfo->hProcess, (HMODULE)moduleBase, originalName, ARRAYSIZE(originalName)))
+    //get the origin module path
+    char modPath[MAX_PATH] = "";
+    if(!ModPathFromAddr(moduleBase, modPath, MAX_PATH))
     {
         if(Error)
-            sprintf_s(Error, MAX_ERROR_SIZE, "Failed to get module path of module %s", moduleName);
+            sprintf_s(Error, MAX_ERROR_SIZE, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Failed to get module path of module %s")), moduleName);
 
         return -1;
     }
 
-    // Create a temporary backup file
-    if(!CopyFileW(originalName, StringUtils::Utf8ToUtf16(FileName).c_str(), false))
+    // Create file copy at destination path with attributes
+    WString srcPath = StringUtils::Utf8ToUtf16(modPath);
+    WString dstPath = StringUtils::Utf8ToUtf16(FileName);
+
+    if(!CopyFileW(srcPath.c_str(), dstPath.c_str(), false))
     {
         if(Error)
-            strcpy_s(Error, MAX_ERROR_SIZE, "Failed to make a copy of the original file (patch target is in use?)");
+            strcpy_s(Error, MAX_ERROR_SIZE, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Failed to make a copy of the original file (patch target is in use?)")));
 
         return -1;
     }
 
+    // Strip the READONLY flag from file so we can load it
+    DWORD fileAttrs = GetFileAttributesW(dstPath.c_str());
+
+    if(fileAttrs == INVALID_FILE_ATTRIBUTES)
+    {
+        if(Error)
+            strcpy_s(Error, MAX_ERROR_SIZE, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Unable to obtain attributes for copied file")));
+
+        return -1;
+    }
+
+    SetFileAttributesW(dstPath.c_str(), fileAttrs & ~FILE_ATTRIBUTE_READONLY);
+
+    // Try loading (will fail if SetFileAttributesW fails)
     HANDLE fileHandle;
     DWORD loadedSize;
     HANDLE fileMap;
     ULONG_PTR fileMapVa;
-    if(!StaticFileLoadW(StringUtils::Utf8ToUtf16(FileName).c_str(), UE_ACCESS_ALL, false, &fileHandle, &loadedSize, &fileMap, &fileMapVa))
+    if(!StaticFileLoadW(dstPath.c_str(), UE_ACCESS_ALL, false, &fileHandle, &loadedSize, &fileMap, &fileMapVa))
     {
-        strcpy_s(Error, MAX_ERROR_SIZE, "StaticFileLoad failed");
+        if(Error)
+            strcpy_s(Error, MAX_ERROR_SIZE, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "StaticFileLoad failed")));
+
         return -1;
     }
 
@@ -259,10 +292,10 @@ int PatchFile(const PATCHINFO* List, int Count, const char* FileName, char* Erro
     }
 
     // Unload the file from memory and commit changes to disk
-    if(!StaticFileUnloadW(StringUtils::Utf8ToUtf16(FileName).c_str(), true, fileHandle, loadedSize, fileMap, fileMapVa))
+    if(!StaticFileUnloadW(dstPath.c_str(), true, fileHandle, loadedSize, fileMap, fileMapVa))
     {
         if(Error)
-            strcpy_s(Error, MAX_ERROR_SIZE, "StaticFileUnload failed");
+            strcpy_s(Error, MAX_ERROR_SIZE, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "StaticFileUnload failed")));
 
         return -1;
     }

@@ -7,27 +7,34 @@
 #include "simplescript.h"
 #include "console.h"
 #include "variable.h"
-#include "x64_dbg.h"
 #include "debugger.h"
+#include "filehelper.h"
+#include <thread>
+
+enum CMDRESULT
+{
+    STATUS_ERROR = false,
+    STATUS_CONTINUE = true,
+    STATUS_EXIT = 2,
+    STATUS_PAUSE = 3
+};
 
 static std::vector<LINEMAPENTRY> linemap;
-
 static std::vector<SCRIPTBP> scriptbplist;
-
 static std::vector<int> scriptstack;
-
 static int scriptIp = 0;
-
+static int scriptIpOld = 0;
 static bool volatile bAbort = false;
-
 static bool volatile bIsRunning = false;
+static bool scriptLogEnabled = false;
+static CMDRESULT scriptLastError = STATUS_ERROR;
 
 static SCRIPTBRANCHTYPE scriptgetbranchtype(const char* text)
 {
     char newtext[MAX_SCRIPT_LINE_SIZE] = "";
     strcpy_s(newtext, StringUtils::Trim(text).c_str());
     if(!strstr(newtext, " "))
-        strcat(newtext, " ");
+        strcat_s(newtext, " ");
     if(!strncmp(newtext, "jmp ", 4) || !strncmp(newtext, "goto ", 5))
         return scriptjmp;
     else if(!strncmp(newtext, "jbe ", 4) || !strncmp(newtext, "ifbe ", 5) || !strncmp(newtext, "ifbeq ", 6) || !strncmp(newtext, "jle ", 4) || !strncmp(newtext, "ifle ", 5) || !strncmp(newtext, "ifleq ", 6))
@@ -72,40 +79,40 @@ static int scriptinternalstep(int fromIp) //internal step routine
     return fromIp;
 }
 
+static bool scriptisinternalcommand(const char* text, const char* cmd)
+{
+    int len = (int)strlen(text);
+    int cmdlen = (int)strlen(cmd);
+    if(cmdlen > len)
+        return false;
+    else if(cmdlen == len)
+        return scmp(text, cmd);
+    else if(text[cmdlen] == ' ')
+        return (!_strnicmp(text, cmd, cmdlen));
+    return false;
+}
+
 static bool scriptcreatelinemap(const char* filename)
 {
-    Handle hFile = CreateFileW(StringUtils::Utf8ToUtf16(filename).c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
-    if(hFile == INVALID_HANDLE_VALUE)
+    String filedata;
+    if(!FileHelper::ReadAllText(filename, filedata))
     {
-        GuiScriptError(0, "CreateFile failed...");
+        String TranslatedString = GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "FileHelper::ReadAllText failed..."));
+        GuiScriptError(0, TranslatedString.c_str());
         return false;
     }
-    unsigned int filesize = GetFileSize(hFile, 0);
-    if(!filesize)
-    {
-        GuiScriptError(0, "Empty script...");
-        return false;
-    }
-    Memory<char*> filedata(filesize + 1, "createlinemap:filedata");
-    DWORD read = 0;
-    if(!ReadFile(hFile, filedata(), filesize, &read, 0))
-    {
-        GuiScriptError(0, "ReadFile failed...");
-        return false;
-    }
-    hFile.Close();
-    int len = (int)strlen(filedata());
+    auto len = filedata.length();
     char temp[256] = "";
     LINEMAPENTRY entry;
     memset(&entry, 0, sizeof(entry));
-    std::vector<LINEMAPENTRY>().swap(linemap);
-    for(int i = 0, j = 0; i < len; i++) //make raw line map
+    linemap.clear();
+    for(size_t i = 0, j = 0; i < len; i++) //make raw line map
     {
-        if(filedata()[i] == '\r' && filedata()[i + 1] == '\n') //windows file
+        if(filedata[i] == '\r' && filedata[i + 1] == '\n') //windows file
         {
             memset(&entry, 0, sizeof(entry));
             int add = 0;
-            while(temp[add] == ' ')
+            while(isspace(temp[add]))
                 add++;
             strcpy_s(entry.raw, temp + add);
             *temp = 0;
@@ -113,11 +120,11 @@ static bool scriptcreatelinemap(const char* filename)
             i++;
             linemap.push_back(entry);
         }
-        else if(filedata()[i] == '\n') //other file
+        else if(filedata[i] == '\n') //other file
         {
             memset(&entry, 0, sizeof(entry));
             int add = 0;
-            while(temp[add] == ' ')
+            while(isspace(temp[add]))
                 add++;
             strcpy_s(entry.raw, temp + add);
             *temp = 0;
@@ -128,7 +135,7 @@ static bool scriptcreatelinemap(const char* filename)
         {
             memset(&entry, 0, sizeof(entry));
             int add = 0;
-            while(temp[add] == ' ')
+            while(isspace(temp[add]))
                 add++;
             strcpy_s(entry.raw, temp + add);
             *temp = 0;
@@ -136,7 +143,7 @@ static bool scriptcreatelinemap(const char* filename)
             linemap.push_back(entry);
         }
         else
-            j += sprintf(temp + j, "%c", filedata()[i]);
+            j += sprintf_s(temp + j, sizeof(temp) - j, "%c", filedata[i]);
     }
     if(*temp)
     {
@@ -145,7 +152,7 @@ static bool scriptcreatelinemap(const char* filename)
         linemap.push_back(entry);
     }
     int linemapsize = (int)linemap.size();
-    while(!*linemap.at(linemapsize - 1).raw) //remove empty lines from the end
+    while(linemapsize && !*linemap.at(linemapsize - 1).raw) //remove empty lines from the end
     {
         linemapsize--;
         linemap.pop_back();
@@ -156,7 +163,35 @@ static bool scriptcreatelinemap(const char* filename)
 
         //temp. remove comments from the raw line
         char line_comment[256] = "";
-        char* comment = strstr(&cur.raw[0], "//");
+        char* comment = nullptr;
+        {
+            auto len = strlen(cur.raw);
+            auto inquote = false;
+            auto inescape = false;
+            for(size_t i = 0; i < len; i++)
+            {
+                auto ch = cur.raw[i];
+                switch(ch) //simple state machine to determine if the "//" is in quotes
+                {
+                case '\"':
+                    if(!inescape)
+                        inquote = !inquote;
+                    inescape = false;
+                    break;
+                case '\\':
+                    inescape = !inescape;
+                    break;
+                default:
+                    inescape = false;
+                }
+                if(!inquote && ch == '/' && i + 1 < len && cur.raw[i + 1] == '/')
+                {
+                    comment = cur.raw + i;
+                    break;
+                }
+            }
+        }
+
         if(comment && comment != cur.raw) //only when the line doesnt start with a comment
         {
             if(*(comment - 1) == ' ') //space before comment
@@ -176,7 +211,7 @@ static bool scriptcreatelinemap(const char* filename)
         {
             cur.type = lineempty;
         }
-        else if(!strncmp(cur.raw, "//", 2)) //comment
+        else if(!strncmp(cur.raw, "//", 2) || *cur.raw == ';') //comment
         {
             cur.type = linecomment;
             strcpy_s(cur.u.comment, cur.raw);
@@ -184,26 +219,25 @@ static bool scriptcreatelinemap(const char* filename)
         else if(cur.raw[rawlen - 1] == ':') //label
         {
             cur.type = linelabel;
-            sprintf(cur.u.label, "l %.*s", rawlen - 1, cur.raw); //create a fake command for formatting
+            sprintf_s(cur.u.label, "l %.*s", rawlen - 1, cur.raw); //create a fake command for formatting
             strcpy_s(cur.u.label, StringUtils::Trim(cur.u.label).c_str());
-            char temp[256] = "";
             strcpy_s(temp, cur.u.label + 2);
             strcpy_s(cur.u.label, temp); //remove fake command
             if(!*cur.u.label || !strcmp(cur.u.label, "\"\"")) //no label text
             {
                 char message[256] = "";
-                sprintf(message, "Empty label detected on line %d!", i + 1);
+                sprintf_s(message, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Empty label detected on line %d!")), i + 1);
                 GuiScriptError(0, message);
-                std::vector<LINEMAPENTRY>().swap(linemap);
+                linemap.clear();
                 return false;
             }
             int foundlabel = scriptlabelfind(cur.u.label);
             if(foundlabel) //label defined twice
             {
                 char message[256] = "";
-                sprintf(message, "Duplicate label \"%s\" detected on lines %d and %d!", cur.u.label, foundlabel, i + 1);
+                sprintf_s(message, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Duplicate label \"%s\" detected on lines %d and %d!")), cur.u.label, foundlabel, i + 1);
                 GuiScriptError(0, message);
-                std::vector<LINEMAPENTRY>().swap(linemap);
+                linemap.clear();
                 return false;
             }
         }
@@ -213,11 +247,11 @@ static bool scriptcreatelinemap(const char* filename)
             cur.u.branch.type = scriptgetbranchtype(cur.raw);
             char newraw[MAX_SCRIPT_LINE_SIZE] = "";
             strcpy_s(newraw, StringUtils::Trim(cur.raw).c_str());
-            int len = (int)strlen(newraw);
-            for(int i = 0; i < len; i++)
-                if(newraw[i] == ' ')
+            int rlen = (int)strlen(newraw);
+            for(int j = 0; j < rlen; j++)
+                if(newraw[j] == ' ')
                 {
-                    strcpy_s(cur.u.branch.branchlabel, newraw + i + 1);
+                    strcpy_s(cur.u.branch.branchlabel, newraw + j + 1);
                     break;
                 }
         }
@@ -229,35 +263,59 @@ static bool scriptcreatelinemap(const char* filename)
 
         //append the comment to the raw line again
         if(*line_comment)
-            sprintf(cur.raw + rawlen, " %s", line_comment);
+            sprintf_s(cur.raw + rawlen, sizeof(cur.raw) - rawlen, "\1%s", line_comment);
         linemap.at(i) = cur;
     }
     linemapsize = (int)linemap.size();
     for(int i = 0; i < linemapsize; i++)
     {
         auto & currentLine = linemap.at(i);
-        if(currentLine.type == linebranch)  //invalid branch label
+        if(currentLine.type == linebranch) //invalid branch label
         {
             int labelline = scriptlabelfind(currentLine.u.branch.branchlabel);
             if(!labelline) //invalid branch label
             {
                 char message[256] = "";
-                sprintf(message, "Invalid branch label \"%s\" detected on line %d!", currentLine.u.branch.branchlabel, i + 1);
+                sprintf_s(message, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Invalid branch label \"%s\" detected on line %d!")), currentLine.u.branch.branchlabel, i + 1);
                 GuiScriptError(0, message);
-                std::vector<LINEMAPENTRY>().swap(linemap);
+                linemap.clear();
                 return false;
             }
             else //set the branch destination line
                 currentLine.u.branch.dest = scriptinternalstep(labelline);
         }
     }
-    if(linemap.at(linemapsize - 1).type == linecomment || linemap.at(linemapsize - 1).type == linelabel) //label/comment on the end
+    if(!linemap.empty())
     {
         memset(&entry, 0, sizeof(entry));
         entry.type = linecommand;
         strcpy_s(entry.raw, "ret");
         strcpy_s(entry.u.command, "ret");
-        linemap.push_back(entry);
+
+        const auto & lastline = linemap.back();
+        switch(lastline.type)
+        {
+        case linecommand:
+            if(scriptisinternalcommand(lastline.u.command, "ret")
+                    || scriptisinternalcommand(lastline.u.command, "invalid")
+                    || scriptisinternalcommand(lastline.u.command, "error"))
+            {
+                // there is already a terminating command at the end of the script
+            }
+            else
+            {
+                linemap.push_back(entry);
+            }
+            break;
+        case linebranch:
+            // a branch at the end of the script can only go back
+            break;
+        case linelabel:
+        case linecomment:
+        case lineempty:
+            linemap.push_back(entry);
+            break;
+        }
     }
     return true;
 }
@@ -294,54 +352,6 @@ static bool scriptinternalbptoggle(int line) //internal breakpoint
         scriptbplist.push_back(newbp);
     }
     return true;
-}
-
-static bool scriptisinternalcommand(const char* text, const char* cmd)
-{
-    int len = (int)strlen(text);
-    int cmdlen = (int)strlen(cmd);
-    if(cmdlen > len)
-        return false;
-    else if(cmdlen == len)
-        return scmp(text, cmd);
-    else if(text[cmdlen] == ' ')
-        return (!_strnicmp(text, cmd, cmdlen));
-    return false;
-}
-
-static CMDRESULT scriptinternalcmdexec(const char* cmd)
-{
-    if(scriptisinternalcommand(cmd, "ret")) //script finished
-    {
-        if(!scriptstack.size()) //nothing on the stack
-        {
-            GuiScriptMessage("Script finished!");
-            return STATUS_EXIT;
-        }
-        scriptIp = scriptstack.back(); //set scriptIp to the call address (scriptinternalstep will step over it)
-        scriptstack.pop_back(); //remove last stack entry
-        return STATUS_CONTINUE;
-    }
-    else if(scriptisinternalcommand(cmd, "invalid")) //invalid command for testing
-        return STATUS_ERROR;
-    else if(scriptisinternalcommand(cmd, "pause")) //pause the script
-        return STATUS_PAUSE;
-    else if(scriptisinternalcommand(cmd, "nop")) //do nothing
-        return STATUS_CONTINUE;
-    char command[deflen] = "";
-    strcpy_s(command, StringUtils::Trim(cmd).c_str());
-    COMMAND* found = cmdfindmain(command);
-    if(!found) //invalid command
-        return STATUS_ERROR;
-    if(arraycontains(found->name, "var")) //var
-    {
-        cmddirectexec(command);
-        return STATUS_CONTINUE;
-    }
-    CMDRESULT res = cmddirectexec(command);
-    while(DbgIsDebugging() && dbgisrunning()) //while not locked (NOTE: possible deadlock)
-        Sleep(10);
-    return res;
 }
 
 static bool scriptinternalbranch(SCRIPTBRANCHTYPE type) //determine if we should jump
@@ -388,19 +398,95 @@ static bool scriptinternalbranch(SCRIPTBRANCHTYPE type) //determine if we should
     return bJump;
 }
 
-static bool scriptinternalcmd()
+static CMDRESULT scriptinternalcmdexec(const char* cmd, bool silentRet)
+{
+    if(scriptisinternalcommand(cmd, "ret")) //script finished
+    {
+        if(!scriptstack.size()) //nothing on the stack
+        {
+            if(!silentRet)
+            {
+                String TranslatedString = GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Script finished!"));
+                GuiScriptMessage(TranslatedString.c_str());
+            }
+            return STATUS_EXIT;
+        }
+        scriptIp = scriptstack.back();
+        scriptstack.pop_back(); //remove last stack entry
+        return STATUS_CONTINUE;
+    }
+    else if(scriptisinternalcommand(cmd, "error")) //show an error and end the script
+    {
+        GuiScriptError(0, StringUtils::Trim(cmd + strlen("error"), " \"'").c_str());
+        return STATUS_EXIT;
+    }
+    else if(scriptisinternalcommand(cmd, "invalid")) //invalid command for testing
+        return STATUS_ERROR;
+    else if(scriptisinternalcommand(cmd, "pause")) //pause the script
+        return STATUS_PAUSE;
+    else if(scriptisinternalcommand(cmd, "nop")) //do nothing
+        return STATUS_CONTINUE;
+    else if(scriptisinternalcommand(cmd, "log"))
+        scriptLogEnabled = true;
+    //super disgusting hack(s) to support branches in the GUI
+    {
+        auto branchtype = scriptgetbranchtype(cmd);
+        if(branchtype != scriptnobranch)
+        {
+            String cmdStr = cmd;
+            auto branchlabel = StringUtils::Trim(cmdStr.substr(cmdStr.find(' ')));
+            auto labelIp = scriptlabelfind(branchlabel.c_str());
+            if(!labelIp)
+            {
+                char message[256] = "";
+                sprintf_s(message, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Invalid branch label \"%s\" detected on line %d!")), branchlabel.c_str(), 0);
+                GuiScriptError(0, message);
+                return STATUS_ERROR;
+            }
+            if(scriptinternalbranch(branchtype))
+            {
+                if(branchtype == scriptcall) //calls have a special meaning
+                    scriptstack.push_back(scriptIp);
+                scriptIp = scriptinternalstep(labelIp); //go to the first command after the label
+                GuiScriptSetIp(scriptIp);
+            }
+            return STATUS_CONTINUE;
+        }
+    }
+    auto res = cmddirectexec(cmd);
+    while(DbgIsDebugging() && dbgisrunning() && !bAbort) //while not locked (NOTE: possible deadlock)
+    {
+        Sleep(1);
+        GuiProcessEvents(); //workaround for scripts being executed on the GUI thread
+    }
+    scriptLogEnabled = false;
+    return res ? STATUS_CONTINUE : STATUS_ERROR;
+}
+
+static bool scriptinternalcmd(bool silentRet)
 {
     bool bContinue = true;
-    LINEMAPENTRY cur = linemap.at(scriptIp - 1);
+    if(size_t(scriptIp - 1) >= linemap.size())
+        return false;
+    const LINEMAPENTRY & cur = linemap.at(scriptIp - 1);
+    scriptIpOld = scriptIp;
+    scriptIp = scriptinternalstep(scriptIp);
     if(cur.type == linecommand)
     {
-        switch(scriptinternalcmdexec(cur.u.command))
+        scriptLastError = scriptinternalcmdexec(cur.u.command, silentRet);
+        switch(scriptLastError)
         {
         case STATUS_CONTINUE:
+            if(scriptIp == scriptIpOld)
+            {
+                bContinue = false;
+                scriptIp = scriptinternalstep(0);
+            }
             break;
         case STATUS_ERROR:
             bContinue = false;
-            GuiScriptError(scriptIp, "Error executing command!");
+            scriptIp = scriptIpOld;
+            GuiScriptError(scriptIp, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Error executing command!")));
             break;
         case STATUS_EXIT:
             bContinue = false;
@@ -409,24 +495,31 @@ static bool scriptinternalcmd()
             break;
         case STATUS_PAUSE:
             bContinue = false; //stop running the script
-            scriptIp = scriptinternalstep(scriptIp);
             GuiScriptSetIp(scriptIp);
             break;
         }
     }
     else if(cur.type == linebranch)
     {
-        if(cur.u.branch.type == scriptcall) //calls have a special meaning
-            scriptstack.push_back(scriptIp);
         if(scriptinternalbranch(cur.u.branch.type))
+        {
+            if(cur.u.branch.type == scriptcall) //calls have a special meaning
+                scriptstack.push_back(scriptIp);
             scriptIp = scriptlabelfind(cur.u.branch.branchlabel);
+            scriptIp = scriptinternalstep(scriptIp); //go to the first command after the label
+        }
     }
     return bContinue;
 }
 
-static DWORD WINAPI scriptRunThread(void* arg)
+static DWORD WINAPI scriptLoadSyncThread(LPVOID filename)
 {
-    int destline = (int)(duint)arg;
+    scriptLoadSync(reinterpret_cast<const char*>(filename));
+    return 0;
+}
+
+bool scriptRunSync(int destline, bool silentRet)
+{
     if(!destline || destline > (int)linemap.size()) //invalid line
         destline = 0;
     if(destline)
@@ -440,57 +533,73 @@ static DWORD WINAPI scriptRunThread(void* arg)
         scriptIp--;
     scriptIp = scriptinternalstep(scriptIp);
     bool bContinue = true;
+    bool bIgnoreTimeout = settingboolget("Engine", "NoScriptTimeout");
+    unsigned long long kernelTime, userTime;
+    FILETIME creationTime, exitTime; // unused
     while(bContinue && !bAbort) //run loop
     {
-        bContinue = scriptinternalcmd();
-        if(scriptIp == scriptinternalstep(scriptIp)) //end of script
-        {
-            bContinue = false;
-            scriptIp = scriptinternalstep(0);
-        }
-        if(bContinue)
-            scriptIp = scriptinternalstep(scriptIp); //this is the next ip
+        bContinue = scriptinternalcmd(silentRet);
         if(scriptinternalbpget(scriptIp)) //breakpoint=stop run loop
             bContinue = false;
-        Sleep(1); //don't fry the processor
+        if(bContinue && !bIgnoreTimeout && GetThreadTimes(GetCurrentThread(), &creationTime, &exitTime, reinterpret_cast<LPFILETIME>(&kernelTime), reinterpret_cast<LPFILETIME>(&userTime)) != 0)
+        {
+            if(userTime + kernelTime >= 10 * 10000000) // time out in 10 seconds of CPU time
+            {
+                if(GuiScriptMsgyn(GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "The script is too busy. Would you like to terminate it now?"))) != 0)
+                {
+                    dputs(QT_TRANSLATE_NOOP("DBG", "Script is terminated by user."));
+                    break;
+                }
+                else
+                    bIgnoreTimeout = true;
+            }
+        }
     }
     bIsRunning = false; //not running anymore
     GuiScriptSetIp(scriptIp);
-    return 0;
+    // the script fully executed (which means scriptIp is reset to the first line), without any errors
+    return scriptIp == scriptinternalstep(0) && (scriptLastError == STATUS_EXIT || scriptLastError == STATUS_CONTINUE);
 }
 
-static DWORD WINAPI scriptLoadThread(void* filename)
+bool scriptLoadSync(const char* filename)
 {
     GuiScriptClear();
     GuiScriptEnableHighlighting(true); //enable default script syntax highlighting
     scriptIp = 0;
-    std::vector<SCRIPTBP>().swap(scriptbplist); //clear breakpoints
-    std::vector<int>().swap(scriptstack); //clear script stack
+    scriptIpOld = 0;
+    scriptbplist.clear();
+    scriptstack.clear();
     bAbort = false;
-    if(!scriptcreatelinemap((const char*)filename))
-        return 0;
+    if(!scriptcreatelinemap(reinterpret_cast<const char*>(filename)))
+        return false; // Script load failed
     int lines = (int)linemap.size();
-    const char** script = (const char**)BridgeAlloc(lines * sizeof(const char*));
+    const char** script = reinterpret_cast<const char**>(BridgeAlloc(lines * sizeof(const char*)));
     for(int i = 0; i < lines; i++) //add script lines
         script[i] = linemap.at(i).raw;
     GuiScriptAdd(lines, script);
     scriptIp = scriptinternalstep(0);
     GuiScriptSetIp(scriptIp);
-    return 0;
+    return true;
 }
 
 void scriptload(const char* filename)
 {
     static char filename_[MAX_PATH] = "";
     strcpy_s(filename_, filename);
-    CloseHandle(CreateThread(0, 0, scriptLoadThread, filename_, 0, 0));
+    auto hThread = CreateThread(nullptr, 0, scriptLoadSyncThread, filename_, 0, nullptr);
+    while(WaitForSingleObject(hThread, 100) == WAIT_TIMEOUT)
+        GuiProcessEvents();
+    CloseHandle(hThread);
 }
 
 void scriptunload()
 {
     GuiScriptClear();
+    linemap.clear();
+    scriptbplist.clear();
+    scriptstack.clear();
     scriptIp = 0;
-    std::vector<SCRIPTBP>().swap(scriptbplist); //clear breakpoints
+    scriptIpOld = 0;
     bAbort = false;
 }
 
@@ -498,32 +607,30 @@ void scriptrun(int destline)
 {
     if(DbgIsDebugging() && dbgisrunning())
     {
-        GuiScriptError(0, "Debugger must be paused to run a script!");
+        GuiScriptError(0, GuiTranslateText(QT_TRANSLATE_NOOP("DBG", "Debugger must be paused to run a script!")));
         return;
     }
     if(bIsRunning) //already running
         return;
     bIsRunning = true;
-    CloseHandle(CreateThread(0, 0, scriptRunThread, (void*)(duint)destline, 0, 0));
-}
-
-DWORD WINAPI scriptStepThread(void* param)
-{
-    if(bIsRunning) //already running
-        return 0;
-    scriptIp = scriptinternalstep(scriptIp - 1); //probably useless
-    if(!scriptinternalcmd())
-        return 0;
-    if(scriptIp == scriptinternalstep(scriptIp)) //end of script
-        scriptIp = 0;
-    scriptIp = scriptinternalstep(scriptIp);
-    GuiScriptSetIp(scriptIp);
-    return 0;
+    std::thread t([destline]
+    {
+        scriptRunSync(destline, false);
+    });
+    t.detach();
 }
 
 void scriptstep()
 {
-    CloseHandle(CreateThread(0, 0, scriptStepThread, 0, 0, 0));
+    std::thread t([]
+    {
+        if(!bIsRunning) //only step when not running
+        {
+            scriptinternalcmd(false);
+            GuiScriptSetIp(scriptIp);
+        }
+    });
+    t.detach();
 }
 
 bool scriptbptoggle(int line)
@@ -562,7 +669,9 @@ bool scriptbpget(int line)
 
 bool scriptcmdexec(const char* command)
 {
-    switch(scriptinternalcmdexec(command))
+    scriptIpOld = scriptIp;
+    scriptLastError = scriptinternalcmdexec(command, false);
+    switch(scriptLastError)
     {
     case STATUS_ERROR:
         return false;
@@ -625,32 +734,9 @@ bool scriptgetbranchinfo(int line, SCRIPTBRANCH* info)
     return true;
 }
 
-CMDRESULT cbScriptLoad(int argc, char* argv[])
+void scriptlog(const char* msg)
 {
-    if(argc < 2)
-        return STATUS_ERROR;
-    scriptload(argv[1]);
-    return STATUS_CONTINUE;
-}
-
-CMDRESULT cbScriptMsg(int argc, char* argv[])
-{
-    if(argc < 2)
-    {
-        dputs("not enough arguments!");
-        return STATUS_ERROR;
-    }
-    GuiScriptMessage(argv[1]);
-    return STATUS_CONTINUE;
-}
-
-CMDRESULT cbScriptMsgyn(int argc, char* argv[])
-{
-    if(argc < 2)
-    {
-        dputs("not enough arguments!");
-        return STATUS_ERROR;
-    }
-    varset("$RESULT", GuiScriptMsgyn(argv[1]), false);
-    return STATUS_CONTINUE;
+    if(!scriptLogEnabled)
+        return;
+    GuiScriptSetInfoLine(scriptIpOld, msg);
 }

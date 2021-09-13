@@ -12,6 +12,10 @@ debug/
 doxygen*/
 doc/
 COV/
+minidump/
+CppDependOut/
+.vs/
+.vscode/
 
 # Global filetypes to ignore
 *.depend
@@ -21,15 +25,16 @@ COV/
 *.bmarks
 *.chw
 *.cbTemp
-*.ini
 *.opensdf
 *.sdf
 *.suo
+*.VC.opendb
 *.autosave
 *.~vsd
 *.dll
 *.exe
 *.pro.user.*
+*.vcxproj.user
 *.orig
 cov-int*
 *.pdb
@@ -38,11 +43,17 @@ ui_*
 *.pro.user
 .DS_Store
 *.ipgset
-*.vcxproj.user
+pin.log*
+*.cdproj
+src/gui/Translations/*.qm
+x64dbg.VC.db
 
 # Project to ignore
 help/x64*dbg.chm
 help/output/
+bin/x64*dbg.chm
+bin/win32.*
+bin/x*.unicode.txt
 
 # Debugger files to ignore
 CppCheckResults.xml
@@ -54,10 +65,19 @@ src/gui/build
 src/gui/Makefile*
 tools/
 RCa*
+RDa*
+RDb*
 src/build-*/
 
 # Exceptions
-!/hooks/AStyleWhore.exe
+!/hooks/AStyleHelper.exe
 !/hooks/AStyle.dll
 !/bin/x64dbg_shell_remove.reg
+!/bin/themes/
 !*.lib
+.scannerwork/
+bw-output/
+build-wrapper*
+My Amplifier Results - */
+My Inspector Results - */
+/bin/x96dbg.ini

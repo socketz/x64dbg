@@ -2,11 +2,12 @@
 #define CLOSEDIALOG_H
 
 #include <QDialog>
-#include <QCloseEvent>
+
+class QCloseEvent;
 
 namespace Ui
 {
-class CloseDialog;
+    class CloseDialog;
 }
 
 class CloseDialog : public QDialog

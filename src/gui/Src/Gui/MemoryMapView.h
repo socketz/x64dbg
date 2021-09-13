@@ -3,6 +3,8 @@
 
 #include "StdTable.h"
 
+class GotoDialog;
+
 class MemoryMapView : public StdTable
 {
     Q_OBJECT
@@ -12,7 +14,6 @@ public:
     void setupContextMenu();
 
 signals:
-    void showCpu();
     void showReferences();
 
 public slots:
@@ -20,35 +21,48 @@ public slots:
     void stateChangedSlot(DBGSTATE state);
     void followDumpSlot();
     void followDisassemblerSlot();
-    void yaraSlot();
-    void memoryAccessSingleshootSlot();
-    void memoryAccessRestoreSlot();
-    void memoryWriteSingleshootSlot();
-    void memoryWriteRestoreSlot();
-    void memoryExecuteSingleshootSlot();
-    void memoryExecuteRestoreSlot();
-    void memoryRemoveSlot();
+    void followSymbolsSlot();
+    void doubleClickedSlot();
     void memoryExecuteSingleshootToggleSlot();
+    void memoryAllocateSlot();
+    void ExecCommand();
     void contextMenuSlot(const QPoint & pos);
     void switchView();
     void pageMemoryRights();
     void refreshMap();
-    void entropy();
     void findPatternSlot();
+    void dumpMemory();
+    void loadMemory();
+    void commentSlot();
+    void selectAddress(duint va);
+    void gotoOriginSlot();
+    void gotoExpressionSlot();
+    void addVirtualModSlot();
+    void findReferencesSlot();
+    void selectionGetSlot(SELECTIONDATA* selection);
+    void disassembleAtSlot(dsint va, dsint cip);
 
 private:
     QString getProtectionString(DWORD Protect);
+    QAction* makeCommandAction(QAction* action, const QString & command);
+
+    GotoDialog* mGoto = nullptr;
 
     QAction* mFollowDump;
     QAction* mFollowDisassembly;
-    QAction* mYara;
+    QAction* mFollowSymbols;
     QAction* mSwitchView;
     QAction* mPageMemoryRights;
+    QAction* mDumpMemory;
+    QAction* mLoadMemory;
 
     QMenu* mBreakpointMenu;
     QMenu* mMemoryAccessMenu;
     QAction* mMemoryAccessSingleshoot;
     QAction* mMemoryAccessRestore;
+    QMenu* mMemoryReadMenu;
+    QAction* mMemoryReadSingleshoot;
+    QAction* mMemoryReadRestore;
     QMenu* mMemoryWriteMenu;
     QAction* mMemoryWriteSingleshoot;
     QAction* mMemoryWriteRestore;
@@ -57,8 +71,18 @@ private:
     QAction* mMemoryExecuteRestore;
     QAction* mMemoryRemove;
     QAction* mMemoryExecuteSingleshootToggle;
-    QAction* mEntropy;
     QAction* mFindPattern;
+    QMenu* mGotoMenu;
+    QAction* mGotoOrigin;
+    QAction* mGotoExpression;
+    QAction* mMemoryAllocate;
+    QAction* mMemoryFree;
+    QAction* mAddVirtualMod;
+    QAction* mComment;
+    QAction* mReferences;
+    QMenu* mPluginMenu;
+
+    duint mCipBase;
 };
 
 #endif // MEMORYMAPVIEW_H

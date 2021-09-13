@@ -2,18 +2,28 @@
 
 ValidateExpressionThread::ValidateExpressionThread(QObject* parent) : QThread(parent), mExpressionChanged(false), mStopThread(false)
 {
+    this->mOnExpressionChangedCallback = nullptr;
 }
 
-void ValidateExpressionThread::start(QString initialValue)
+void ValidateExpressionThread::start()
 {
     mStopThread = false;
     QThread::start();
-    textChanged(initialValue);
 }
 
 void ValidateExpressionThread::stop()
 {
     mStopThread = true;
+}
+
+void ValidateExpressionThread::emitExpressionChanged(bool validExpression, bool validPointer, dsint value)
+{
+    emit expressionChanged(validExpression, validPointer, value);
+}
+
+void ValidateExpressionThread::emitInstructionChanged(dsint sizeDifference, QString error)
+{
+    emit instructionChanged(sizeDifference, error);
 }
 
 void ValidateExpressionThread::textChanged(QString text)
@@ -27,6 +37,18 @@ void ValidateExpressionThread::textChanged(QString text)
     mExpressionMutex.unlock();
 }
 
+void ValidateExpressionThread::additionalStateChanged()
+{
+    mExpressionMutex.lock();
+    mExpressionChanged = true;
+    mExpressionMutex.unlock();
+}
+
+void ValidateExpressionThread::setOnExpressionChangedCallback(EXPRESSIONCHANGEDCB callback)
+{
+    mOnExpressionChangedCallback = callback;
+}
+
 void ValidateExpressionThread::run()
 {
     while(!mStopThread)
@@ -36,12 +58,9 @@ void ValidateExpressionThread::run()
         bool changed = mExpressionChanged;
         mExpressionChanged = false;
         mExpressionMutex.unlock();
-        if(changed)
+        if(changed && mOnExpressionChangedCallback != nullptr)
         {
-            duint value;
-            bool validExpression = DbgFunctions()->ValFromString(expression.toUtf8().constData(), &value);
-            bool validPointer = validExpression && DbgMemIsValidReadPtr(value);
-            emit expressionChanged(validExpression, validPointer, value);
+            mOnExpressionChangedCallback(expression);
         }
         Sleep(50);
     }

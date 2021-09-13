@@ -3,12 +3,6 @@
 
 // Qt includes
 #include <QTabBar>
-#include <QMenu>
-#include <QAction>
-
-// Qt forward class definitions
-class MHTabBar;
-class QMainWindow;
 
 //////////////////////////////////////////////////////////////////////////////
 // Summary:
@@ -20,18 +14,21 @@ class MHTabBar: public QTabBar
 
 public:
     MHTabBar(QWidget* parent, bool allowDetach, bool allowDelete);
-    ~MHTabBar(void);
+    ~MHTabBar();
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event);
+    void mouseDoubleClickEvent(QMouseEvent* event);
 
 signals:
     // Detach Tab
-    void OnDetachTab(int index, QPoint & dropPoint);
+    void OnDetachTab(int index, const QPoint & dropPoint);
     // Move Tab
     void OnMoveTab(int fromIndex, int toIndex);
     // Delete Tab
     void OnDeleteTab(int index);
+    // Double Click on Tab, Get Index
+    void OnDoubleClickTabIndex(int index);
 
 private:
     bool mAllowDetach;

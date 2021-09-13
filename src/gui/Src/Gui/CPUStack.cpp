@@ -1,16 +1,23 @@
 #include "CPUStack.h"
+#include "CPUDump.h"
 #include <QClipboard>
 #include "Configuration.h"
 #include "Bridge.h"
+#include "CommonActions.h"
 #include "HexEditDialog.h"
 #include "WordEditDialog.h"
+#include "CPUMultiDump.h"
+#include "GotoDialog.h"
 
-CPUStack::CPUStack(QWidget* parent) : HexDump(parent)
+CPUStack::CPUStack(CPUMultiDump* multiDump, QWidget* parent) : HexDump(parent)
 {
+    setWindowTitle("Stack");
     setShowHeader(false);
     int charwidth = getCharWidth();
-    ColumnDescriptor_t wColDesc;
-    DataDescriptor_t dDesc;
+    ColumnDescriptor wColDesc;
+    DataDescriptor dDesc;
+    bStackFrozen = false;
+    mMultiDump = multiDump;
 
     mForceColumn = 1;
 
@@ -24,7 +31,7 @@ CPUStack::CPUStack(QWidget* parent) : HexDump(parent)
     wColDesc.data.itemSize = Dword;
     wColDesc.data.dwordMode = HexDword;
 #endif
-    appendDescriptor(8 + charwidth * 2 * sizeof(duint), "void*", false, wColDesc);
+    appendDescriptor(10 + charwidth * 2 * sizeof(duint), "void*", false, wColDesc);
 
     wColDesc.isData = false; //comments
     wColDesc.itemCount = 0;
@@ -32,7 +39,7 @@ CPUStack::CPUStack(QWidget* parent) : HexDump(parent)
     dDesc.itemSize = Byte;
     dDesc.byteMode = AsciiByte;
     wColDesc.data = dDesc;
-    appendDescriptor(2000, "Comments", false, wColDesc);
+    appendDescriptor(2000, tr("Comments"), false, wColDesc);
 
     setupContextMenu();
 
@@ -42,6 +49,11 @@ CPUStack::CPUStack(QWidget* parent) : HexDump(parent)
     connect(Bridge::getBridge(), SIGNAL(stackDumpAt(duint, duint)), this, SLOT(stackDumpAt(duint, duint)));
     connect(Bridge::getBridge(), SIGNAL(selectionStackGet(SELECTIONDATA*)), this, SLOT(selectionGet(SELECTIONDATA*)));
     connect(Bridge::getBridge(), SIGNAL(selectionStackSet(const SELECTIONDATA*)), this, SLOT(selectionSet(const SELECTIONDATA*)));
+    connect(Bridge::getBridge(), SIGNAL(dbgStateChanged(DBGSTATE)), this, SLOT(dbgStateChangedSlot(DBGSTATE)));
+    connect(Bridge::getBridge(), SIGNAL(focusStack()), this, SLOT(setFocus()));
+    connect(Bridge::getBridge(), SIGNAL(updateDump()), this, SLOT(updateSlot()));
+
+    connect(this, SIGNAL(selectionUpdated()), this, SLOT(selectionUpdatedSlot()));
 
     Initialize();
 }
@@ -50,131 +62,309 @@ void CPUStack::updateColors()
 {
     HexDump::updateColors();
 
-    backgroundColor = ConfigColor("StackBackgroundColor");
-    textColor = ConfigColor("StackTextColor");
-    selectionColor = ConfigColor("StackSelectionColor");
+    mBackgroundColor = ConfigColor("StackBackgroundColor");
+    mTextColor = ConfigColor("StackTextColor");
+    mSelectionColor = ConfigColor("StackSelectionColor");
+    mStackReturnToColor = ConfigColor("StackReturnToColor");
+    mStackSEHChainColor = ConfigColor("StackSEHChainColor");
+    mUserStackFrameColor = ConfigColor("StackFrameColor");
+    mSystemStackFrameColor = ConfigColor("StackFrameSystemColor");
 }
 
 void CPUStack::updateFonts()
 {
     setFont(ConfigFont("Stack"));
+    invalidateCachedFont();
 }
 
 void CPUStack::setupContextMenu()
 {
-    //Binary menu
-    mBinaryMenu = new QMenu("B&inary", this);
+    mMenuBuilder = new MenuBuilder(this, [](QMenu*)
+    {
+        return DbgIsDebugging();
+    });
+    mCommonActions = new CommonActions(this, getActionHelperFuncs(), [this]()
+    {
+        return rvaToVa(getSelectionStart());
+    });
 
-    //Binary->Edit
-    mBinaryEditAction = new QAction("&Edit", this);
-    mBinaryEditAction->setShortcutContext(Qt::WidgetShortcut);
-    this->addAction(mBinaryEditAction);
-    connect(mBinaryEditAction, SIGNAL(triggered()), this, SLOT(binaryEditSlot()));
-    mBinaryMenu->addAction(mBinaryEditAction);
+    //Push
+    mMenuBuilder->addAction(makeShortcutAction(DIcon("arrow-small-down.png"), ArchValue(tr("P&ush DWORD..."), tr("P&ush QWORD...")), SLOT(pushSlot()), "ActionPush"));
 
-    //Binary->Fill
-    mBinaryFillAction = new QAction("&Fill...", this);
-    mBinaryFillAction->setShortcutContext(Qt::WidgetShortcut);
-    this->addAction(mBinaryFillAction);
-    connect(mBinaryFillAction, SIGNAL(triggered()), this, SLOT(binaryFillSlot()));
-    mBinaryMenu->addAction(mBinaryFillAction);
+    //Pop
+    mMenuBuilder->addAction(makeShortcutAction(DIcon("arrow-small-up.png"), ArchValue(tr("P&op DWORD"), tr("P&op QWORD")), SLOT(popSlot()), "ActionPop"));
 
-    //Binary->Separator
-    mBinaryMenu->addSeparator();
-
-    //Binary->Copy
-    mBinaryCopyAction = new QAction("&Copy", this);
-    mBinaryCopyAction->setShortcutContext(Qt::WidgetShortcut);
-    this->addAction(mBinaryCopyAction);
-    connect(mBinaryCopyAction, SIGNAL(triggered()), this, SLOT(binaryCopySlot()));
-    mBinaryMenu->addAction(mBinaryCopyAction);
-
-    //Binary->Paste
-    mBinaryPasteAction = new QAction("&Paste", this);
-    mBinaryPasteAction->setShortcutContext(Qt::WidgetShortcut);
-    this->addAction(mBinaryPasteAction);
-    connect(mBinaryPasteAction, SIGNAL(triggered()), this, SLOT(binaryPasteSlot()));
-    mBinaryMenu->addAction(mBinaryPasteAction);
-
-    //Binary->Paste (Ignore Size)
-    mBinaryPasteIgnoreSizeAction = new QAction("Paste (&Ignore Size)", this);
-    mBinaryPasteIgnoreSizeAction->setShortcutContext(Qt::WidgetShortcut);
-    this->addAction(mBinaryPasteIgnoreSizeAction);
-    connect(mBinaryPasteIgnoreSizeAction, SIGNAL(triggered()), this, SLOT(binaryPasteIgnoreSizeSlot()));
-    mBinaryMenu->addAction(mBinaryPasteIgnoreSizeAction);
-
-    // Restore Selection
-    mUndoSelection = new QAction("&Restore selection", this);
-    mUndoSelection->setShortcutContext(Qt::WidgetShortcut);
-    this->addAction(mUndoSelection);
-    connect(mUndoSelection, SIGNAL(triggered()), this, SLOT(undoSelectionSlot()));
+    //Realign
+    mMenuBuilder->addAction(makeAction(DIcon("align-stack-pointer.png"), tr("Align Stack Pointer"), SLOT(realignSlot())), [this](QMenu*)
+    {
+        return (mCsp & (sizeof(duint) - 1)) != 0;
+    });
 
     // Modify
-    mModifyAction = new QAction("Modify", this);
-    connect(mModifyAction, SIGNAL(triggered()), this, SLOT(modifySlot()));
+    mMenuBuilder->addAction(makeAction(DIcon("modify.png"), tr("Modify"), SLOT(modifySlot())));
 
+    auto binaryMenu = new MenuBuilder(this);
+
+    //Binary->Edit
+    binaryMenu->addAction(makeShortcutAction(DIcon("binary_edit.png"), tr("&Edit"), SLOT(binaryEditSlot()), "ActionBinaryEdit"));
+
+    //Binary->Fill
+    binaryMenu->addAction(makeShortcutAction(DIcon("binary_fill.png"), tr("&Fill..."), SLOT(binaryFillSlot()), "ActionBinaryFill"));
+
+    //Binary->Separator
+    binaryMenu->addSeparator();
+
+    //Binary->Copy
+    binaryMenu->addAction(makeShortcutAction(DIcon("binary_copy.png"), tr("&Copy"), SLOT(binaryCopySlot()), "ActionBinaryCopy"));
+
+    //Binary->Paste
+    binaryMenu->addAction(makeShortcutAction(DIcon("binary_paste.png"), tr("&Paste"), SLOT(binaryPasteSlot()), "ActionBinaryPaste"));
+
+    //Binary->Paste (Ignore Size)
+    binaryMenu->addAction(makeShortcutAction(DIcon("binary_paste_ignoresize.png"), tr("Paste (&Ignore Size)"), SLOT(binaryPasteIgnoreSizeSlot()), "ActionBinaryPasteIgnoreSize"));
+
+    mMenuBuilder->addMenu(makeMenu(DIcon("binary.png"), tr("B&inary")), binaryMenu);
+
+    auto copyMenu = new MenuBuilder(this);
+    copyMenu->addAction(mCopySelection);
+    copyMenu->addAction(mCopyAddress);
+    copyMenu->addAction(mCopyRva, [this](QMenu*)
+    {
+        return DbgFunctions()->ModBaseFromAddr(rvaToVa(getInitialSelection())) != 0;
+    });
+    mMenuBuilder->addMenu(makeMenu(DIcon("copy.png"), tr("&Copy")), copyMenu);
+
+    //Breakpoint (hardware access) menu
+    auto hardwareAccessMenu = makeMenu(DIcon("breakpoint_access.png"), tr("Hardware, Access"));
+    hardwareAccessMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_byte.png"), tr("&Byte"), "bphws $, r, 1"));
+    hardwareAccessMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_word.png"), tr("&Word"), "bphws $, r, 2"));
+    hardwareAccessMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_dword.png"), tr("&Dword"), "bphws $, r, 4"));
 #ifdef _WIN64
-    mGotoSp = new QAction("Follow R&SP", this);
-    mGotoBp = new QAction("Follow R&BP", this);
-#else
-    mGotoSp = new QAction("Follow E&SP", this);
-    mGotoBp = new QAction("Follow E&BP", this);
+    hardwareAccessMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_qword.png"), tr("&Qword"), "bphws $, r, 8"));
 #endif //_WIN64
-    mGotoSp->setShortcutContext(Qt::WidgetShortcut);
-    this->addAction(mGotoSp);
-    connect(mGotoSp, SIGNAL(triggered()), this, SLOT(gotoSpSlot()));
-    connect(mGotoBp, SIGNAL(triggered()), this, SLOT(gotoBpSlot()));
+
+    //Breakpoint (hardware write) menu
+    auto hardwareWriteMenu = makeMenu(DIcon("breakpoint_write.png"), tr("Hardware, Write"));
+    hardwareWriteMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_byte.png"), tr("&Byte"), "bphws $, w, 1"));
+    hardwareWriteMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_word.png"), tr("&Word"), "bphws $, w, 2"));
+    hardwareWriteMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_dword.png"), tr("&Dword"), "bphws $, w, 4"));
+#ifdef _WIN64
+    hardwareWriteMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_qword.png"), tr("&Qword"), "bphws $, r, 8"));
+#endif //_WIN64
+
+    //Breakpoint (remove hardware)
+    auto hardwareRemove = mCommonActions->makeCommandAction(DIcon("breakpoint_remove.png"), tr("Remove &Hardware"), "bphwc $");
+
+    //Breakpoint (memory access) menu
+    auto memoryAccessMenu = makeMenu(DIcon("breakpoint_memory_access.png"), tr("Memory, Access"));
+    memoryAccessMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_memory_singleshoot.png"), tr("&Singleshoot"), "bpm $, 0, a"));
+    memoryAccessMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_memory_restore_on_hit.png"), tr("&Restore on hit"), "bpm $, 1, a"));
+
+    //Breakpoint (memory write) menu
+    auto memoryWriteMenu = makeMenu(DIcon("breakpoint_memory_write.png"), tr("Memory, Write"));
+    memoryWriteMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_memory_singleshoot.png"), tr("&Singleshoot"), "bpm $, 0, w"));
+    memoryWriteMenu->addAction(mCommonActions->makeCommandAction(DIcon("breakpoint_memory_restore_on_hit.png"), tr("&Restore on hit"), "bpm $, 1, w"));
+
+    //Breakpoint (remove memory) menu
+    auto memoryRemove = mCommonActions->makeCommandAction(DIcon("breakpoint_remove.png"), tr("Remove &Memory"), "bpmc $");
+
+    //Breakpoint menu
+    auto breakpointMenu = new MenuBuilder(this);
+
+    //Breakpoint menu
+    breakpointMenu->addBuilder(new MenuBuilder(this, [ = ](QMenu * menu)
+    {
+        duint selectedAddr = rvaToVa(getInitialSelection());
+        if(DbgGetBpxTypeAt(selectedAddr) & bp_hardware) //hardware breakpoint set
+        {
+            menu->addAction(hardwareRemove);
+        }
+        else //memory breakpoint not set
+        {
+            menu->addMenu(hardwareAccessMenu);
+            menu->addMenu(hardwareWriteMenu);
+        }
+
+        menu->addSeparator();
+
+        if(DbgGetBpxTypeAt(selectedAddr) & bp_memory) //memory breakpoint set
+        {
+            menu->addAction(memoryRemove);
+        }
+        else //memory breakpoint not set
+        {
+            menu->addMenu(memoryAccessMenu);
+            menu->addMenu(memoryWriteMenu);
+        }
+        return true;
+    }));
+    mMenuBuilder->addMenu(makeMenu(DIcon("breakpoint.png"), tr("Brea&kpoint")), breakpointMenu);
+
+    // Restore Selection
+    mMenuBuilder->addAction(makeShortcutAction(DIcon("eraser.png"), tr("&Restore selection"), SLOT(undoSelectionSlot()), "ActionUndoSelection"), [this](QMenu*)
+    {
+        dsint start = rvaToVa(getSelectionStart());
+        dsint end = rvaToVa(getSelectionEnd());
+        return DbgFunctions()->PatchInRange(start, end);
+    });
 
     //Find Pattern
-    mFindPatternAction = new QAction("&Find Pattern...", this);
-    mFindPatternAction->setShortcutContext(Qt::WidgetShortcut);
-    this->addAction(mFindPatternAction);
-    connect(mFindPatternAction, SIGNAL(triggered()), this, SLOT(findPattern()));
+    mMenuBuilder->addAction(makeShortcutAction(DIcon("search-for.png"), tr("&Find Pattern..."), SLOT(findPattern()), "ActionFindPattern"));
 
-    mGotoExpression = new QAction("&Expression", this);
-    mGotoExpression->setShortcutContext(Qt::WidgetShortcut);
-    this->addAction(mGotoExpression);
-    connect(mGotoExpression, SIGNAL(triggered()), this, SLOT(gotoExpressionSlot()));
+    //Follow CSP
+    mMenuBuilder->addAction(makeShortcutAction(DIcon("neworigin.png"), ArchValue(tr("Follow E&SP"), tr("Follow R&SP")), SLOT(gotoCspSlot()), "ActionGotoOrigin"));
+    mMenuBuilder->addAction(makeShortcutAction(DIcon("cbp.png"), ArchValue(tr("Follow E&BP"), tr("Follow R&BP")), SLOT(gotoCbpSlot()), "ActionGotoCBP"), [](QMenu*)
+    {
+        return DbgMemIsValidReadPtr(DbgValFromString("cbp"));
+    });
 
-    mFollowDisasm = new QAction("&Follow in Disassembler", this);
+    auto gotoMenu = new MenuBuilder(this);
+
+    //Go to Expression
+    gotoMenu->addAction(makeShortcutAction(DIcon("geolocation-goto.png"), tr("Go to &Expression"), SLOT(gotoExpressionSlot()), "ActionGotoExpression"));
+
+    //Go to Base of Stack Frame
+    gotoMenu->addAction(makeShortcutAction(DIcon("neworigin.png"), tr("Go to Base of Stack Frame"), SLOT(gotoFrameBaseSlot()), "ActionGotoBaseOfStackFrame"));
+
+    //Go to Previous Frame
+    gotoMenu->addAction(makeShortcutAction(DIcon("previous.png"), tr("Go to Previous Stack Frame"), SLOT(gotoPreviousFrameSlot()), "ActionGotoPrevStackFrame"));
+
+    //Go to Next Frame
+    gotoMenu->addAction(makeShortcutAction(DIcon("next.png"), tr("Go to Next Stack Frame"), SLOT(gotoNextFrameSlot()), "ActionGotoNextStackFrame"));
+
+    //Go to Previous
+    gotoMenu->addAction(makeShortcutAction(DIcon("previous.png"), tr("Go to Previous"), SLOT(gotoPreviousSlot()), "ActionGotoPrevious"), [this](QMenu*)
+    {
+        return mHistory.historyHasPrev();
+    });
+
+    //Go to Next
+    gotoMenu->addAction(makeShortcutAction(DIcon("next.png"), tr("Go to Next"), SLOT(gotoNextSlot()), "ActionGotoNext"), [this](QMenu*)
+    {
+        return mHistory.historyHasNext();
+    });
+
+    mMenuBuilder->addMenu(makeMenu(DIcon("goto.png"), tr("&Go to")), gotoMenu);
+
+    //Freeze the stack
+    mMenuBuilder->addAction(mFreezeStack = makeShortcutAction(DIcon("freeze.png"), tr("Freeze the stack"), SLOT(freezeStackSlot()), "ActionFreezeStack"));
+    mFreezeStack->setCheckable(true);
+
+    //Follow in Memory Map
+    mCommonActions->build(mMenuBuilder, CommonActions::ActionMemoryMap | CommonActions::ActionDump | CommonActions::ActionDumpData);
+
+    //Follow in Stack
+    auto followStackName = ArchValue(tr("Follow DWORD in &Stack"), tr("Follow QWORD in &Stack"));
+    mFollowStack = makeAction(DIcon("stack.png"), followStackName, SLOT(followStackSlot()));
+    mFollowStack->setShortcutContext(Qt::WidgetShortcut);
+    mFollowStack->setShortcut(QKeySequence("enter"));
+    mMenuBuilder->addAction(mFollowStack, [this](QMenu*)
+    {
+        duint ptr;
+        if(!DbgMemRead(rvaToVa(getInitialSelection()), (unsigned char*)&ptr, sizeof(ptr)))
+            return false;
+        duint stackBegin = mMemPage->getBase();
+        duint stackEnd = stackBegin + mMemPage->getSize();
+        return ptr >= stackBegin && ptr < stackEnd;
+    });
+
+    //Follow in Disassembler
+    auto disasmIcon = DIcon(ArchValue("processor32.png", "processor64.png"));
+    mFollowDisasm = makeAction(disasmIcon, ArchValue(tr("&Follow DWORD in Disassembler"), tr("&Follow QWORD in Disassembler")), SLOT(followDisasmSlot()));
     mFollowDisasm->setShortcutContext(Qt::WidgetShortcut);
     mFollowDisasm->setShortcut(QKeySequence("enter"));
-    this->addAction(mFollowDisasm);
-    connect(mFollowDisasm, SIGNAL(triggered()), this, SLOT(followDisasmSlot()));
-    connect(this, SIGNAL(enterPressedSignal()), this, SLOT(followDisasmSlot()));
+    mMenuBuilder->addAction(mFollowDisasm, [this](QMenu*)
+    {
+        duint ptr;
+        return DbgMemRead(rvaToVa(getInitialSelection()), (unsigned char*)&ptr, sizeof(ptr)) && DbgMemIsValidReadPtr(ptr);
+    });
 
-    mFollowDump = new QAction("Follow in &Dump", this);
-    connect(mFollowDump, SIGNAL(triggered()), this, SLOT(followDumpSlot()));
+    //Follow PTR in Dump
+    auto followDumpName = ArchValue(tr("Follow DWORD in &Dump"), tr("Follow QWORD in &Dump"));
 
-    mFollowStack = new QAction("Follow in &Stack", this);
-    connect(mFollowStack, SIGNAL(triggered()), this, SLOT(followStackSlot()));
+    mCommonActions->build(mMenuBuilder, CommonActions::ActionDumpN | CommonActions::ActionWatch);
 
     mPluginMenu = new QMenu(this);
     Bridge::getBridge()->emitMenuAddToList(this, mPluginMenu, GUI_STACK_MENU);
 
-    refreshShortcutsSlot();
-    connect(Config(), SIGNAL(shortcutsUpdated()), this, SLOT(refreshShortcutsSlot()));
+    mMenuBuilder->addSeparator();
+    mMenuBuilder->addBuilder(new MenuBuilder(this, [this](QMenu * menu)
+    {
+        DbgMenuPrepare(GUI_STACK_MENU);
+        menu->addActions(mPluginMenu->actions());
+        return true;
+    }));
+
+    mMenuBuilder->loadFromConfig();
 }
 
-void CPUStack::refreshShortcutsSlot()
+void CPUStack::updateFreezeStackAction()
 {
-    mBinaryEditAction->setShortcut(ConfigShortcut("ActionBinaryEdit"));
-    mBinaryFillAction->setShortcut(ConfigShortcut("ActionBinaryFill"));
-    mBinaryCopyAction->setShortcut(ConfigShortcut("ActionBinaryCopy"));
-    mBinaryPasteAction->setShortcut(ConfigShortcut("ActionBinaryPaste"));
-    mBinaryPasteIgnoreSizeAction->setShortcut(ConfigShortcut("ActionBinaryPasteIgnoreSize"));
-    mUndoSelection->setShortcut(ConfigShortcut("ActionUndoSelection"));
-    mGotoSp->setShortcut(ConfigShortcut("ActionGotoOrigin"));
-    mFindPatternAction->setShortcut(ConfigShortcut("ActionFindPattern"));
-    mGotoExpression->setShortcut(ConfigShortcut("ActionGotoExpression"));
+    if(bStackFrozen)
+        mFreezeStack->setText(tr("Unfreeze the stack"));
+    else
+        mFreezeStack->setText(tr("Freeze the stack"));
+    mFreezeStack->setChecked(bStackFrozen);
+}
+
+void CPUStack::getColumnRichText(int col, dsint rva, RichTextPainter::List & richText)
+{
+    // Compute VA
+    duint wVa = rvaToVa(rva);
+
+    bool wActiveStack = (wVa >= mCsp); //inactive stack
+
+    STACK_COMMENT comment;
+    RichTextPainter::CustomRichText_t curData;
+    curData.underline = false;
+    curData.flags = RichTextPainter::FlagColor;
+    curData.textColor = mTextColor;
+
+    if(col && mDescriptor.at(col - 1).isData == true) //paint stack data
+    {
+        HexDump::getColumnRichText(col, rva, richText);
+        if(!wActiveStack)
+        {
+            QColor inactiveColor = ConfigColor("StackInactiveTextColor");
+            for(int i = 0; i < int(richText.size()); i++)
+            {
+                richText[i].flags = RichTextPainter::FlagColor;
+                richText[i].textColor = inactiveColor;
+            }
+        }
+    }
+    else if(col && DbgStackCommentGet(wVa, &comment)) //paint stack comments
+    {
+        if(wActiveStack)
+        {
+            if(*comment.color)
+            {
+                if(comment.color[0] == '!')
+                {
+                    if(strcmp(comment.color, "!sehclr") == 0)
+                        curData.textColor = mStackSEHChainColor;
+                    else if(strcmp(comment.color, "!rtnclr") == 0)
+                        curData.textColor = mStackReturnToColor;
+                    else
+                        curData.textColor = mTextColor;
+                }
+                else
+                    curData.textColor = QColor(QString(comment.color));
+            }
+            else
+                curData.textColor = mTextColor;
+        }
+        else
+            curData.textColor = ConfigColor("StackInactiveTextColor");
+        curData.text = comment.comment;
+        richText.push_back(curData);
+    }
+    else
+        HexDump::getColumnRichText(col, rva, richText);
 }
 
 QString CPUStack::paintContent(QPainter* painter, dsint rowBase, int rowOffset, int col, int x, int y, int w, int h)
 {
-    // Reset byte offset when base address is reached
-    if(rowBase == 0 && mByteOffset != 0)
-        printDumpAt(mMemPage->getBase(), false, false);
-
     // Compute RVA
     int wBytePerRowCount = getBytePerRowCount();
     dsint wRva = (rowBase + rowOffset) * wBytePerRowCount - mByteOffset;
@@ -182,60 +372,13 @@ QString CPUStack::paintContent(QPainter* painter, dsint rowBase, int rowOffset, 
 
     bool wIsSelected = isSelected(wRva);
     if(wIsSelected) //highlight if selected
-        painter->fillRect(QRect(x, y, w, h), QBrush(selectionColor));
-
-    bool wActiveStack = true;
-    if(wVa < mCsp) //inactive stack
-        wActiveStack = false;
-
-    STACK_COMMENT comment;
+        painter->fillRect(QRect(x, y, w, h), QBrush(mSelectionColor));
 
     if(col == 0) // paint stack address
     {
-        char label[MAX_LABEL_SIZE] = "";
-        QString addrText = "";
-        dsint cur_addr = rvaToVa((rowBase + rowOffset) * getBytePerRowCount() - mByteOffset);
-        if(mRvaDisplayEnabled) //RVA display
-        {
-            dsint rva = cur_addr - mRvaDisplayBase;
-            if(rva == 0)
-            {
-#ifdef _WIN64
-                addrText = "$ ==>            ";
-#else
-                addrText = "$ ==>    ";
-#endif //_WIN64
-            }
-            else if(rva > 0)
-            {
-#ifdef _WIN64
-                addrText = "$+" + QString("%1").arg(rva, -15, 16, QChar(' ')).toUpper();
-#else
-                addrText = "$+" + QString("%1").arg(rva, -7, 16, QChar(' ')).toUpper();
-#endif //_WIN64
-            }
-            else if(rva < 0)
-            {
-#ifdef _WIN64
-                addrText = "$-" + QString("%1").arg(-rva, -15, 16, QChar(' ')).toUpper();
-#else
-                addrText = "$-" + QString("%1").arg(-rva, -7, 16, QChar(' ')).toUpper();
-#endif //_WIN64
-            }
-        }
-        addrText += ToPtrString(cur_addr);
-        if(DbgGetLabelAt(cur_addr, SEG_DEFAULT, label)) //has label
-        {
-            char module[MAX_MODULE_SIZE] = "";
-            if(DbgGetModuleAt(cur_addr, module) && !QString(label).startsWith("JMP.&"))
-                addrText += " <" + QString(module) + "." + QString(label) + ">";
-            else
-                addrText += " <" + QString(label) + ">";
-        }
-        else
-            *label = 0;
         QColor background;
-        if(*label) //label
+        char labelText[MAX_LABEL_SIZE] = "";
+        if(DbgGetLabelAt(wVa, SEG_DEFAULT, labelText)) //label
         {
             if(wVa == mCsp) //CSP
             {
@@ -268,82 +411,80 @@ QString CPUStack::paintContent(QPainter* painter, dsint rowBase, int rowOffset, 
         }
         if(background.alpha())
             painter->fillRect(QRect(x, y, w, h), QBrush(background)); //fill background when defined
-        painter->drawText(QRect(x + 4, y , w - 4 , h), Qt::AlignVCenter | Qt::AlignLeft, addrText);
+        painter->drawText(QRect(x + 4, y, w - 4, h), Qt::AlignVCenter | Qt::AlignLeft, makeAddrText(wVa));
+        return QString();
     }
-    else if(mDescriptor.at(col - 1).isData == true) //paint stack data
+    else if(col == 1) // paint stack data
     {
-        int wBytePerRowCount = getBytePerRowCount();
-        dsint wRva = (rowBase + rowOffset) * wBytePerRowCount - mByteOffset;
-        printSelected(painter, rowBase, rowOffset, col, x, y, w, h);
-        QList<RichTextPainter::CustomRichText_t> richText;
-        getString(col - 1, wRva, &richText);
-        if(!wActiveStack)
+        if(mCallstack.size())
         {
-            QColor inactiveColor = ConfigColor("StackInactiveTextColor");
-            for(int i = 0; i < richText.size(); i++)
+            int stackFrameBitfield = 0; // 0:none, 1:top of stack frame, 2:bottom of stack frame, 4:middle of stack frame
+            int party = 0;
+            if(wVa >= mCallstack[0].addr)
             {
-                richText[i].flags = RichTextPainter::FlagColor;
-                richText[i].textColor = inactiveColor;
+                for(size_t i = 0; i < mCallstack.size() - 1; i++)
+                {
+                    if(wVa >= mCallstack[i].addr && wVa < mCallstack[i + 1].addr)
+                    {
+                        stackFrameBitfield |= (mCallstack[i].addr == wVa) ? 1 : 0;
+                        stackFrameBitfield |= (mCallstack[i + 1].addr == wVa + sizeof(duint)) ? 2 : 0;
+                        if(stackFrameBitfield == 0)
+                            stackFrameBitfield = 4;
+                        party = mCallstack[i].party;
+                        break;
+                    }
+                }
+                // draw stack frame
+                if(stackFrameBitfield == 0)
+                    return HexDump::paintContent(painter, rowBase, rowOffset, 1, x, y, w, h);
+                else
+                {
+                    int height = getRowHeight();
+                    int halfHeight = height / 2;
+                    int width = 5;
+                    int offset = 2;
+                    auto result = HexDump::paintContent(painter, rowBase, rowOffset, 1, x + (width - 2), y, w - (width - 2), h);
+                    if(party == mod_user)
+                        painter->setPen(QPen(mUserStackFrameColor, 2));
+                    else
+                        painter->setPen(QPen(mSystemStackFrameColor, 2));
+                    if((stackFrameBitfield & 1) != 0)
+                    {
+                        painter->drawLine(x + width, y + halfHeight / 2, x + offset, y + halfHeight / 2);
+                        painter->drawLine(x + offset, y + halfHeight / 2, x + offset, y + halfHeight);
+                    }
+                    else
+                        painter->drawLine(x + offset, y, x + offset, y + halfHeight);
+                    if((stackFrameBitfield & 2) != 0)
+                    {
+                        painter->drawLine(x + width, y + height / 4 * 3, x + offset, y + height / 4 * 3);
+                        painter->drawLine(x + offset, y + height / 4 * 3, x + offset, y + halfHeight);
+                    }
+                    else
+                        painter->drawLine(x + offset, y + height, x + offset, y + halfHeight);
+                    return result;
+                }
             }
-        }
-        RichTextPainter::paintRichText(painter, x, y, w, h, 4, &richText, getCharWidth());
-    }
-    else if(DbgStackCommentGet(rvaToVa(wRva), &comment)) //paint stack comments
-    {
-        QString wStr = QString(comment.comment);
-        if(wActiveStack)
-        {
-            if(*comment.color)
-                painter->setPen(QPen(QColor(QString(comment.color))));
             else
-                painter->setPen(QPen(textColor));
+                return HexDump::paintContent(painter, rowBase, rowOffset, 1, x, y, w, h);
         }
         else
-            painter->setPen(QPen(ConfigColor("StackInactiveTextColor")));
-        painter->drawText(QRect(x + 4, y , w - 4 , h), Qt::AlignVCenter | Qt::AlignLeft, wStr);
+            return HexDump::paintContent(painter, rowBase, rowOffset, 1, x, y, w, h);
     }
-    return "";
+    else
+        return HexDump::paintContent(painter, rowBase, rowOffset, col, x, y, w, h);
 }
 
 void CPUStack::contextMenuEvent(QContextMenuEvent* event)
 {
-    if(!DbgIsDebugging())
-        return;
-
-    QMenu* wMenu = new QMenu(this); //create context menu
-    wMenu->addAction(mModifyAction);
-    wMenu->addMenu(mBinaryMenu);
-    dsint start = rvaToVa(getSelectionStart());
-    dsint end = rvaToVa(getSelectionEnd());
-    if(DbgFunctions()->PatchInRange(start, end)) //nothing patched in selected range
-        wMenu->addAction(mUndoSelection);
-    wMenu->addAction(mFindPatternAction);
-    wMenu->addAction(mGotoSp);
-    wMenu->addAction(mGotoBp);
-    wMenu->addAction(mGotoExpression);
-
-    duint selectedData;
-    if(mMemPage->read((byte_t*)&selectedData, getInitialSelection(), sizeof(duint)))
-        if(DbgMemIsValidReadPtr(selectedData)) //data is a pointer
-        {
-            duint stackBegin = mMemPage->getBase();
-            duint stackEnd = stackBegin + mMemPage->getSize();
-            if(selectedData >= stackBegin && selectedData < stackEnd)
-                wMenu->addAction(mFollowStack);
-            else
-                wMenu->addAction(mFollowDisasm);
-            wMenu->addAction(mFollowDump);
-        }
-
-    wMenu->addSeparator();
-    wMenu->addActions(mPluginMenu->actions());
-
-    wMenu->exec(event->globalPos());
+    QMenu wMenu(this); //create context menu
+    mMenuBuilder->build(&wMenu);
+    wMenu.exec(event->globalPos());
 }
 
 void CPUStack::mouseDoubleClickEvent(QMouseEvent* event)
 {
-    if(event->button() != Qt::LeftButton)
+    if(event->button() != Qt::LeftButton || !DbgIsDebugging())
         return;
     switch(getColumnIndexFromX(event->x()))
     {
@@ -366,34 +507,178 @@ void CPUStack::mouseDoubleClickEvent(QMouseEvent* event)
     }
     break;
 
-    default:
+    case 1: // value
     {
         modifySlot();
+    }
+    break;
+
+    default:
+    {
+        duint wVa = rvaToVa(getInitialSelection());
+        STACK_COMMENT comment;
+        if(DbgStackCommentGet(wVa, &comment) && strcmp(comment.color, "!rtnclr") == 0)
+            followDisasmSlot();
     }
     break;
     }
 }
 
-void CPUStack::stackDumpAt(duint addr, duint csp)
+void CPUStack::wheelEvent(QWheelEvent* event)
 {
-    mCsp = csp;
-    printDumpAt(addr);
+    if(event->modifiers() == Qt::NoModifier)
+        AbstractTableView::wheelEvent(event);
+    else if(event->modifiers() == Qt::ControlModifier) // Zoom
+        Config()->zoomFont("Stack", event);
 }
 
-void CPUStack::gotoSpSlot()
+void CPUStack::stackDumpAt(duint addr, duint csp)
+{
+    if(DbgMemIsValidReadPtr(addr))
+        mHistory.addVaToHistory(addr);
+    mCsp = csp;
+
+    // Get the callstack
+    DBGCALLSTACK callstack;
+    memset(&callstack, 0, sizeof(DBGCALLSTACK));
+    DbgFunctions()->GetCallStack(&callstack);
+    mCallstack.resize(callstack.total);
+    if(mCallstack.size())
+    {
+        // callstack data highest >> lowest
+        std::qsort(callstack.entries, callstack.total, sizeof(DBGCALLSTACKENTRY), [](const void* a, const void* b)
+        {
+            auto p = (const DBGCALLSTACKENTRY*)a;
+            auto q = (const DBGCALLSTACKENTRY*)b;
+            if(p->addr < q->addr)
+                return -1;
+            else
+                return 1;
+        });
+        for(size_t i = 0; i < mCallstack.size(); i++)
+        {
+            mCallstack[i].addr = callstack.entries[i].addr;
+            mCallstack[i].party = DbgFunctions()->ModGetParty(callstack.entries[i].to);
+        }
+        BridgeFree(callstack.entries);
+    }
+    bool isInvisible;
+    isInvisible = (addr < mMemPage->va(getTableOffsetRva())) || (addr >= mMemPage->va(getTableOffsetRva() + getViewableRowsCount() * getBytePerRowCount()));
+
+    printDumpAt(addr, true, true, isInvisible || addr == csp);
+}
+
+void CPUStack::updateSlot()
 {
     if(!DbgIsDebugging())
         return;
+    // Get the callstack
+    DBGCALLSTACK callstack;
+    memset(&callstack, 0, sizeof(DBGCALLSTACK));
+    DbgFunctions()->GetCallStack(&callstack);
+    mCallstack.resize(callstack.total);
+    if(mCallstack.size())
+    {
+        // callstack data highest >> lowest
+        std::qsort(callstack.entries, callstack.total, sizeof(DBGCALLSTACKENTRY), [](const void* a, const void* b)
+        {
+            auto p = (const DBGCALLSTACKENTRY*)a;
+            auto q = (const DBGCALLSTACKENTRY*)b;
+            if(p->addr < q->addr)
+                return -1;
+            else
+                return 1;
+        });
+        for(size_t i = 0; i < mCallstack.size(); i++)
+        {
+            mCallstack[i].addr = callstack.entries[i].addr;
+            mCallstack[i].party = DbgFunctions()->ModGetParty(callstack.entries[i].to);
+        }
+        BridgeFree(callstack.entries);
+    }
+}
+
+void CPUStack::disasmSelectionChanged(dsint parVA)
+{
+    // When the selected instruction is changed, select the argument that is in the stack.
+    DISASM_INSTR instr;
+    if(!DbgIsDebugging() || !DbgMemIsValidReadPtr(parVA))
+        return;
+    DbgDisasmAt(parVA, &instr);
+
+    duint underlineStart = 0;
+    duint underlineEnd = 0;
+
+    for(int i = 0; i < instr.argcount; i++)
+    {
+        const DISASM_ARG & arg = instr.arg[i];
+        if(arg.type == arg_memory)
+        {
+            if(arg.value >= mMemPage->getBase() && arg.value < mMemPage->getBase() + mMemPage->getSize())
+            {
+                if(Config()->getBool("Gui", "AutoFollowInStack"))
+                {
+                    //TODO: When the stack is unaligned?
+                    stackDumpAt(arg.value & (~(sizeof(void*) - 1)), mCsp);
+                }
+                else
+                {
+                    BASIC_INSTRUCTION_INFO info;
+                    DbgDisasmFastAt(parVA, &info);
+                    underlineStart = arg.value;
+                    underlineEnd = mUnderlineRangeStartVa + info.memory.size - 1;
+                }
+                break;
+            }
+        }
+    }
+
+    if(mUnderlineRangeStartVa != underlineStart || mUnderlineRangeEndVa != underlineEnd)
+    {
+        mUnderlineRangeStartVa = underlineStart;
+        mUnderlineRangeEndVa = underlineEnd;
+        reloadData();
+    }
+}
+
+void CPUStack::gotoCspSlot()
+{
     DbgCmdExec("sdump csp");
 }
 
-void CPUStack::gotoBpSlot()
+void CPUStack::gotoCbpSlot()
 {
-#ifdef _WIN64
-    DbgCmdExec("sdump rbp");
-#else
-    DbgCmdExec("sdump ebp");
-#endif //_WIN64
+    DbgCmdExec("sdump cbp");
+}
+
+int CPUStack::getCurrentFrame(const std::vector<CPUStack::CPUCallStack> & mCallstack, duint wVA)
+{
+    if(mCallstack.size())
+        for(size_t i = 0; i < mCallstack.size() - 1; i++)
+            if(wVA >= mCallstack[i].addr && wVA < mCallstack[i + 1].addr)
+                return int(i);
+    return -1;
+}
+
+void CPUStack::gotoFrameBaseSlot()
+{
+    int frame = getCurrentFrame(mCallstack, rvaToVa(getInitialSelection()));
+    if(frame != -1)
+        DbgCmdExec(QString("sdump \"%1\"").arg(ToPtrString(mCallstack[frame].addr)));
+}
+
+void CPUStack::gotoNextFrameSlot()
+{
+    int frame = getCurrentFrame(mCallstack, rvaToVa(getInitialSelection()));
+    if(frame != -1 && frame + 1 < int(mCallstack.size()))
+        DbgCmdExec(QString("sdump \"%1\"").arg(ToPtrString(mCallstack[frame + 1].addr)));
+}
+
+void CPUStack::gotoPreviousFrameSlot()
+{
+    int frame = getCurrentFrame(mCallstack, rvaToVa(getInitialSelection()));
+    if(frame > 0)
+        DbgCmdExec(QString("sdump \"%1\"").arg(ToPtrString(mCallstack[frame - 1].addr)));
 }
 
 void CPUStack::gotoExpressionSlot()
@@ -406,11 +691,12 @@ void CPUStack::gotoExpressionSlot()
         mGoto = new GotoDialog(this);
     mGoto->validRangeStart = base;
     mGoto->validRangeEnd = base + size;
-    mGoto->setWindowTitle("Enter expression to follow in Stack...");
+    mGoto->setWindowTitle(tr("Enter expression to follow in Stack..."));
+    mGoto->setInitialExpression(ToPtrString(rvaToVa(getInitialSelection())));
     if(mGoto->exec() == QDialog::Accepted)
     {
-        QString cmd;
-        DbgCmdExec(cmd.sprintf("sdump \"%s\"", mGoto->expressionText.toUtf8().constData()).toUtf8().constData());
+        duint value = DbgValFromString(mGoto->expressionText.toUtf8().constData());
+        DbgCmdExec(QString().sprintf("sdump %p", value));
     }
 }
 
@@ -418,7 +704,7 @@ void CPUStack::selectionGet(SELECTIONDATA* selection)
 {
     selection->start = rvaToVa(getSelectionStart());
     selection->end = rvaToVa(getSelectionEnd());
-    Bridge::getBridge()->setResult(1);
+    Bridge::getBridge()->setResult(BridgeResult::SelectionGet, 1);
 }
 
 void CPUStack::selectionSet(const SELECTIONDATA* selection)
@@ -429,13 +715,37 @@ void CPUStack::selectionSet(const SELECTIONDATA* selection)
     dsint end = selection->end;
     if(start < selMin || start >= selMax || end < selMin || end >= selMax) //selection out of range
     {
-        Bridge::getBridge()->setResult(0);
+        Bridge::getBridge()->setResult(BridgeResult::SelectionSet, 0);
         return;
     }
     setSingleSelection(start - selMin);
     expandSelectionUpTo(end - selMin);
     reloadData();
-    Bridge::getBridge()->setResult(1);
+    Bridge::getBridge()->setResult(BridgeResult::SelectionSet, 1);
+}
+void CPUStack::selectionUpdatedSlot()
+{
+    duint selectedData;
+    if(mMemPage->read((byte_t*)&selectedData, getInitialSelection(), sizeof(duint)))
+        if(DbgMemIsValidReadPtr(selectedData)) //data is a pointer
+        {
+            duint stackBegin = mMemPage->getBase();
+            duint stackEnd = stackBegin + mMemPage->getSize();
+            if(selectedData >= stackBegin && selectedData < stackEnd) //data is a pointer to stack address
+            {
+                disconnect(SIGNAL(enterPressedSignal()));
+                connect(this, SIGNAL(enterPressedSignal()), this, SLOT(followStackSlot()));
+                mFollowDisasm->setShortcut(QKeySequence(""));
+                mFollowStack->setShortcut(QKeySequence("enter"));
+            }
+            else
+            {
+                disconnect(SIGNAL(enterPressedSignal()));
+                connect(this, SIGNAL(enterPressedSignal()), this, SLOT(followDisasmSlot()));
+                mFollowStack->setShortcut(QKeySequence(""));
+                mFollowDisasm->setShortcut(QKeySequence("enter"));
+            }
+        }
 }
 
 void CPUStack::followDisasmSlot()
@@ -444,19 +754,8 @@ void CPUStack::followDisasmSlot()
     if(mMemPage->read((byte_t*)&selectedData, getInitialSelection(), sizeof(duint)))
         if(DbgMemIsValidReadPtr(selectedData)) //data is a pointer
         {
-            QString addrText = QString("%1").arg(selectedData, sizeof(dsint) * 2, 16, QChar('0')).toUpper();
-            DbgCmdExec(QString("disasm " + addrText).toUtf8().constData());
-        }
-}
-
-void CPUStack::followDumpSlot()
-{
-    duint selectedData;
-    if(mMemPage->read((byte_t*)&selectedData, getInitialSelection(), sizeof(duint)))
-        if(DbgMemIsValidReadPtr(selectedData)) //data is a pointer
-        {
-            QString addrText = QString("%1").arg(selectedData, sizeof(dsint) * 2, 16, QChar('0')).toUpper();
-            DbgCmdExec(QString("dump " + addrText).toUtf8().constData());
+            QString addrText = ToPtrString(selectedData);
+            DbgCmdExec(QString("disasm " + addrText));
         }
 }
 
@@ -466,8 +765,8 @@ void CPUStack::followStackSlot()
     if(mMemPage->read((byte_t*)&selectedData, getInitialSelection(), sizeof(duint)))
         if(DbgMemIsValidReadPtr(selectedData)) //data is a pointer
         {
-            QString addrText = QString("%1").arg(selectedData, sizeof(dsint) * 2, 16, QChar('0')).toUpper();
-            DbgCmdExec(QString("sdump " + addrText).toUtf8().constData());
+            QString addrText = ToPtrString(selectedData);
+            DbgCmdExec(QString("sdump " + addrText));
         }
 }
 
@@ -480,7 +779,7 @@ void CPUStack::binaryEditSlot()
     mMemPage->read(data, selStart, selSize);
     hexEdit.mHexEdit->setData(QByteArray((const char*)data, selSize));
     delete [] data;
-    hexEdit.setWindowTitle("Edit data at " + QString("%1").arg(rvaToVa(selStart), sizeof(dsint) * 2, 16, QChar('0')).toUpper());
+    hexEdit.setWindowTitle(tr("Edit data at %1").arg(ToPtrString(rvaToVa(selStart))));
     if(hexEdit.exec() != QDialog::Accepted)
         return;
     dsint dataSize = hexEdit.mHexEdit->data().size();
@@ -495,9 +794,10 @@ void CPUStack::binaryEditSlot()
 void CPUStack::binaryFillSlot()
 {
     HexEditDialog hexEdit(this);
+    hexEdit.showKeepSize(false);
     hexEdit.mHexEdit->setOverwriteMode(false);
     dsint selStart = getSelectionStart();
-    hexEdit.setWindowTitle("Fill data at " + QString("%1").arg(rvaToVa(selStart), sizeof(dsint) * 2, 16, QChar('0')).toUpper());
+    hexEdit.setWindowTitle(tr("Fill data at %1").arg(ToPtrString(rvaToVa(selStart))));
     if(hexEdit.exec() != QDialog::Accepted)
         return;
     QString pattern = hexEdit.mHexEdit->pattern();
@@ -561,15 +861,16 @@ void CPUStack::findPattern()
 {
     HexEditDialog hexEdit(this);
     hexEdit.showEntireBlock(true);
+    hexEdit.isDataCopiable(false);
     hexEdit.mHexEdit->setOverwriteMode(false);
-    hexEdit.setWindowTitle("Find Pattern...");
+    hexEdit.setWindowTitle(tr("Find Pattern..."));
     if(hexEdit.exec() != QDialog::Accepted)
         return;
     dsint addr = rvaToVa(getSelectionStart());
     if(hexEdit.entireBlock())
         addr = DbgMemFindBaseAddr(addr, 0);
-    QString addrText = QString("%1").arg(addr, sizeof(dsint) * 2, 16, QChar('0')).toUpper();
-    DbgCmdExec(QString("findall " + addrText + ", " + hexEdit.mHexEdit->pattern() + ", &data&").toUtf8().constData());
+    QString addrText = ToPtrString(addr);
+    DbgCmdExec(QString("findall " + addrText + ", " + hexEdit.mHexEdit->pattern() + ", &data&"));
     emit displayReferencesWidget();
 }
 
@@ -589,10 +890,65 @@ void CPUStack::modifySlot()
     WordEditDialog wEditDialog(this);
     dsint value = 0;
     mMemPage->read(&value, addr, sizeof(dsint));
-    wEditDialog.setup("Modify", value, sizeof(dsint));
+    wEditDialog.setup(tr("Modify"), value, sizeof(dsint));
     if(wEditDialog.exec() != QDialog::Accepted)
         return;
     value = wEditDialog.getVal();
     mMemPage->write(&value, addr, sizeof(dsint));
-    reloadData();
+    GuiUpdateAllViews();
+}
+
+void CPUStack::pushSlot()
+{
+    WordEditDialog wEditDialog(this);
+    dsint value = 0;
+    wEditDialog.setup(ArchValue(tr("Push DWORD"), tr("Push QWORD")), value, sizeof(dsint));
+    if(wEditDialog.exec() != QDialog::Accepted)
+        return;
+    value = wEditDialog.getVal();
+    mCsp -= sizeof(dsint);
+    DbgValToString("csp", mCsp);
+    DbgMemWrite(mCsp, (const unsigned char*)&value, sizeof(dsint));
+    GuiUpdateAllViews();
+}
+
+void CPUStack::popSlot()
+{
+    mCsp += sizeof(dsint);
+    DbgValToString("csp", mCsp);
+    GuiUpdateAllViews();
+}
+
+void CPUStack::realignSlot()
+{
+#ifdef _WIN64
+    mCsp &= ~0x7;
+#else //x86
+    mCsp &= ~0x3;
+#endif //_WIN64
+    DbgValToString("csp", mCsp);
+    GuiUpdateAllViews();
+}
+
+void CPUStack::freezeStackSlot()
+{
+    if(bStackFrozen)
+        DbgCmdExec(QString("setfreezestack 0"));
+    else
+        DbgCmdExec(QString("setfreezestack 1"));
+
+    bStackFrozen = !bStackFrozen;
+
+    updateFreezeStackAction();
+    if(!bStackFrozen)
+        gotoCspSlot();
+}
+
+void CPUStack::dbgStateChangedSlot(DBGSTATE state)
+{
+    if(state == initialized)
+    {
+        bStackFrozen = false;
+        updateFreezeStackAction();
+    }
 }

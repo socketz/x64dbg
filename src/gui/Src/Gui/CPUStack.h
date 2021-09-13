@@ -2,36 +2,47 @@
 #define CPUSTACK_H
 
 #include "HexDump.h"
-#include "GotoDialog.h"
+
+//forward declaration
+class CPUMultiDump;
+class GotoDialog;
+class CommonActions;
 
 class CPUStack : public HexDump
 {
     Q_OBJECT
 public:
-    explicit CPUStack(QWidget* parent = 0);
+    explicit CPUStack(CPUMultiDump* multiDump, QWidget* parent = 0);
 
     // Configuration
     virtual void updateColors();
     virtual void updateFonts();
 
-    QString paintContent(QPainter* painter, dsint rowBase, int rowOffset, int col, int x, int y, int w, int h);
+    void getColumnRichText(int col, dsint rva, RichTextPainter::List & richText) override;
+    QString paintContent(QPainter* painter, dsint rowBase, int rowOffset, int col, int x, int y, int w, int h) override;
     void contextMenuEvent(QContextMenuEvent* event);
     void mouseDoubleClickEvent(QMouseEvent* event);
+    void wheelEvent(QWheelEvent* event) override;
     void setupContextMenu();
+    void updateFreezeStackAction();
 
 signals:
     void displayReferencesWidget();
 
 public slots:
-    void refreshShortcutsSlot();
+    void pushSlot();
+    void popSlot();
     void stackDumpAt(duint addr, duint csp);
-    void gotoSpSlot();
-    void gotoBpSlot();
+    void gotoCspSlot();
+    void gotoCbpSlot();
     void gotoExpressionSlot();
+    void gotoPreviousFrameSlot();
+    void gotoNextFrameSlot();
+    void gotoFrameBaseSlot();
     void selectionGet(SELECTIONDATA* selection);
     void selectionSet(const SELECTIONDATA* selection);
+    void selectionUpdatedSlot();
     void followDisasmSlot();
-    void followDumpSlot();
     void followStackSlot();
     void binaryEditSlot();
     void binaryFillSlot();
@@ -41,28 +52,38 @@ public slots:
     void binaryPasteIgnoreSizeSlot();
     void undoSelectionSlot();
     void modifySlot();
+    void realignSlot();
+    void freezeStackSlot();
+    void dbgStateChangedSlot(DBGSTATE state);
+    void disasmSelectionChanged(dsint parVA);
+    void updateSlot();
 
 private:
     duint mCsp;
+    bool bStackFrozen;
 
-    QMenu* mBinaryMenu;
-    QAction* mBinaryEditAction;
-    QAction* mBinaryFillAction;
-    QAction* mBinaryCopyAction;
-    QAction* mBinaryPasteAction;
-    QAction* mBinaryPasteIgnoreSizeAction;
-    QAction* mModifyAction;
-    QAction* mUndoSelection;
-    QAction* mGotoSp;
-    QAction* mGotoBp;
-    QAction* mGotoExpression;
-    QAction* mFindPatternAction;
-    QAction* mFollowDisasm;
-    QAction* mFollowDump;
+    QAction* mFreezeStack;
     QAction* mFollowStack;
+    QAction* mFollowDisasm;
     QMenu* mPluginMenu;
 
     GotoDialog* mGoto;
+    CPUMultiDump* mMultiDump;
+    QColor mUserStackFrameColor;
+    QColor mSystemStackFrameColor;
+    QColor mStackReturnToColor;
+    QColor mStackSEHChainColor;
+    struct CPUCallStack
+    {
+        duint addr;
+        int party;
+    };
+
+    MenuBuilder* mMenuBuilder;
+    CommonActions* mCommonActions;
+
+    std::vector<CPUCallStack> mCallstack;
+    static int CPUStack::getCurrentFrame(const std::vector<CPUStack::CPUCallStack> & mCallstack, duint wVA);
 };
 
 #endif // CPUSTACK_H

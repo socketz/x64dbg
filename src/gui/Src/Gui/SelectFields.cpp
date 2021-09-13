@@ -6,13 +6,11 @@ SelectFields::SelectFields(QWidget* parent) :
     ui(new Ui::SelectFields)
 {
     ui->setupUi(this);
-#if QT_VERSION < QT_VERSION_CHECK(5,0,0)
-    setWindowFlags(Qt::Dialog | Qt::WindowSystemMenuHint | Qt::WindowTitleHint | Qt::MSWindowsFixedSizeDialogHint);
-#endif
+    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint | Qt::MSWindowsFixedSizeDialogHint);
     setModal(true);
 }
 
-QListWidget* SelectFields::GetList(void)
+QListWidget* SelectFields::GetList()
 {
     return ui->listWidget;
 }

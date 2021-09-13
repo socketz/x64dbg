@@ -36,10 +36,11 @@ SCRIPTLINETYPE scriptgetlinetype(int line);
 void scriptsetip(int line);
 void scriptreset();
 bool scriptgetbranchinfo(int line, SCRIPTBRANCH* info);
+void scriptlog(const char* msg);
+bool scriptLoadSync(const char* filename);
+bool scriptRunSync(int destline, bool silentRet);
 
 //script commands
-CMDRESULT cbScriptLoad(int argc, char* argv[]);
-CMDRESULT cbScriptMsg(int argc, char* argv[]);
-CMDRESULT cbScriptMsgyn(int argc, char* argv[]);
+
 
 #endif // _SIMPLESCRIPT_H

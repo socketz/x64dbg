@@ -2,12 +2,13 @@
 #define CALCULATORDIALOG_H
 
 #include <QDialog>
-#include "ValidateExpressionThread.h"
 #include "Imports.h"
+
+class ValidateExpressionThread;
 
 namespace Ui
 {
-class CalculatorDialog;
+    class CalculatorDialog;
 }
 
 class CalculatorDialog : public QDialog
@@ -28,13 +29,13 @@ class CalculatorDialog : public QDialog
 public:
     explicit CalculatorDialog(QWidget* parent = 0);
     ~CalculatorDialog();
+    void validateExpression(QString expression);
     void setExpressionFocus();
     void showEvent(QShowEvent* event);
     void hideEvent(QHideEvent* event);
 
 signals:
     bool validAddress(bool valid);
-    void showCpu();
 
 private slots:
     void expressionChanged(bool validExpression, bool validPointer, dsint value);
@@ -47,6 +48,8 @@ private slots:
     void on_txtAscii_textEdited(const QString & arg1);
     void on_txtUnicode_textEdited(const QString & arg1);
     void on_txtExpression_textChanged(const QString & arg1);
+
+    void on_btnGotoDump_clicked();
 
 private:
     ValidateExpressionThread* mValidateThread;

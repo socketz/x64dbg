@@ -5,6 +5,7 @@
 #include <QScrollArea>
 #include <QUndoStack>
 #include <QKeyEvent>
+#include <QTimer>
 #include "XByteArray.h"
 
 class QHexEditPrivate : public QWidget
@@ -51,6 +52,7 @@ signals:
     void currentAddressChanged(int address);
     void currentSizeChanged(int size);
     void dataChanged();
+    void dataEdited();
     void overwriteModeChanged(bool state);
 
 protected:

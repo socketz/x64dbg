@@ -2,8 +2,8 @@
 #define QHEXEDIT_H
 
 #include <QScrollArea>
-#include <QHBoxLayout>
-#include "QHexEditPrivate.h"
+
+class QHexEditPrivate;
 
 class QHexEdit : public QScrollArea
 {
@@ -54,6 +54,7 @@ signals:
     void currentAddressChanged(int address);
     void currentSizeChanged(int size);
     void dataChanged();
+    void dataEdited();
     void overwriteModeChanged(bool state);
 
 private:

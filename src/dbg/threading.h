@@ -1,17 +1,18 @@
-#pragma once
+#ifndef _THREADING_H
+#define _THREADING_H
 
 #include "_global.h"
 
 enum WAIT_ID
 {
     WAITID_RUN,
-    WAITID_STOP,
     WAITID_LAST
 };
 
 //functions
 void waitclear();
 void wait(WAIT_ID id);
+bool waitfor(WAIT_ID id, unsigned int Milliseconds);
 void lock(WAIT_ID id);
 void unlock(WAIT_ID id);
 bool waitislocked(WAIT_ID id);
@@ -24,11 +25,11 @@ void waitdeinitialize();
 // Win Vista and newer: (Faster) SRW locks used
 // Win 2003 and older:  (Slower) Critical sections used
 //
-#define EXCLUSIVE_ACQUIRE(Index)    SectionLocker<SectionLock::##Index, false> __ThreadLock
+#define EXCLUSIVE_ACQUIRE(Index)    SectionLocker<Index, false> __ThreadLock
 #define EXCLUSIVE_REACQUIRE()       __ThreadLock.Lock()
 #define EXCLUSIVE_RELEASE()         __ThreadLock.Unlock()
 
-#define SHARED_ACQUIRE(Index)       SectionLocker<SectionLock::##Index, true> __SThreadLock
+#define SHARED_ACQUIRE(Index)       SectionLocker<Index, true> __SThreadLock
 #define SHARED_REACQUIRE()          __SThreadLock.Lock()
 #define SHARED_RELEASE()            __SThreadLock.Unlock()
 
@@ -46,11 +47,35 @@ enum SectionLock
     LockPatches,
     LockThreads,
     LockSym,
+    LockCmdLine,
+    LockDatabase,
     LockPluginList,
     LockPluginCallbackList,
     LockPluginCommandList,
     LockPluginMenuList,
-    LockLast,
+    LockPluginExprfunctionList,
+    LockPluginFormatfunctionList,
+    LockSehCache,
+    LockMnemonicHelp,
+    LockTraceRecord,
+    LockCrossReferences,
+    LockDebugStartStop,
+    LockArguments,
+    LockEncodeMaps,
+    LockCallstackCache,
+    LockRunToUserCode,
+    LockWatch,
+    LockExpressionFunctions,
+    LockHistory,
+    LockSymbolCache,
+    LockLineCache,
+    LockTypeManager,
+    LockModuleHashes,
+    LockFormatFunctions,
+    LockDllBreakpoints,
+
+    // Number of elements in this enumeration. Must always be the last index.
+    LockLast
 };
 
 class SectionLockerGlobal
@@ -68,9 +93,27 @@ private:
         if(m_SRWLocks)
         {
             if(Shared)
+            {
+                if(m_owner[LockIndex].thread == GetCurrentThreadId())
+                    return;
+
                 m_AcquireSRWLockShared(&m_srwLocks[LockIndex]);
-            else
-                m_AcquireSRWLockExclusive(&m_srwLocks[LockIndex]);
+                return;
+            }
+
+            if(m_owner[LockIndex].thread == GetCurrentThreadId())
+            {
+                assert(m_owner[LockIndex].count > 0);
+                m_owner[LockIndex].count++;
+                return;
+            }
+
+            m_AcquireSRWLockExclusive(&m_srwLocks[LockIndex]);
+
+            assert(m_owner[LockIndex].thread == 0);
+            assert(m_owner[LockIndex].count == 0);
+            m_owner[LockIndex].thread = GetCurrentThreadId();
+            m_owner[LockIndex].count = 1;
         }
         else
             EnterCriticalSection(&m_crLocks[LockIndex]);
@@ -81,9 +124,22 @@ private:
         if(m_SRWLocks)
         {
             if(Shared)
+            {
+                if(m_owner[LockIndex].thread == GetCurrentThreadId())
+                    return;
+
                 m_ReleaseSRWLockShared(&m_srwLocks[LockIndex]);
-            else
+                return;
+            }
+
+            assert(m_owner[LockIndex].count && m_owner[LockIndex].thread);
+            m_owner[LockIndex].count--;
+
+            if(m_owner[LockIndex].count == 0)
+            {
+                m_owner[LockIndex].thread = 0;
                 m_ReleaseSRWLockExclusive(&m_srwLocks[LockIndex]);
+            }
         }
         else
             LeaveCriticalSection(&m_crLocks[LockIndex]);
@@ -93,6 +149,8 @@ private:
 
     static bool m_Initialized;
     static bool m_SRWLocks;
+    struct owner_info { DWORD thread; size_t count; };
+    static owner_info m_owner[SectionLock::LockLast];
     static SRWLOCK m_srwLocks[SectionLock::LockLast];
     static CRITICAL_SECTION m_crLocks[SectionLock::LockLast];
     static SRWLOCKFUNCTION m_InitializeSRWLock;
@@ -117,22 +175,25 @@ public:
         if(m_LockCount > 0)
             Unlock();
 
-#ifdef _DEBUG
-        // Assert that the lock count is zero on destructor
-        if(m_LockCount > 0)
-            __debugbreak();
-#endif
+        // The lock count should be zero after destruction.
+        assert(m_LockCount == 0);
     }
 
     inline void Lock()
     {
         Internal::AcquireLock(LockIndex, Shared);
 
+        // We cannot recursively lock more than 255 times.
+        assert(m_LockCount < 255);
+
         m_LockCount++;
     }
 
     inline void Unlock()
     {
+        // Unlocking twice will cause undefined behaviour.
+        assert(m_LockCount != 0);
+
         m_LockCount--;
 
         Internal::ReleaseLock(LockIndex, Shared);
@@ -144,3 +205,5 @@ protected:
 private:
     using Internal = SectionLockerGlobal;
 };
+
+#endif // _THREADING_H

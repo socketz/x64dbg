@@ -58,7 +58,6 @@ Command::Command(const String & command)
                 state = TextEscaped;
                 break;
             case '\"':
-                dataFinish();
                 state = Default;
                 break;
             default:
@@ -108,9 +107,6 @@ void Command::dataAppend(const char ch)
 
 void Command::dataFinish()
 {
-    if(_data.length())
-    {
-        _tokens.push_back(_data);
-        _data.clear();
-    }
+    _tokens.push_back(_data);
+    _data.clear();
 }

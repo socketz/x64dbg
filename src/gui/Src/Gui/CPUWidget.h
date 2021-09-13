@@ -2,17 +2,22 @@
 #define CPUWIDGET_H
 
 #include <QWidget>
-#include <QTabWidget>
-#include "CPUSideBar.h"
-#include "CPUDisassembly.h"
-#include "CPUDump.h"
-#include "CPUStack.h"
-#include "RegistersView.h"
-#include "CPUInfoBox.h"
+#include "Bridge.h"
+
+class QVBoxLayout;
+class CPUSideBar;
+class CPUDisassembly;
+class CPUMultiDump;
+class CPUStack;
+class CPURegistersView;
+class CPUInfoBox;
+class CPUArgumentWidget;
+class DisassemblerGraphView;
+class MHDetachedWindow;
 
 namespace Ui
 {
-class CPUWidget;
+    class CPUWidget;
 }
 
 class CPUWidget : public QWidget
@@ -25,31 +30,45 @@ public:
 
     // Misc
     void setDefaultDisposition();
-    void setDisasmFocus();
 
-    // Layout getters
-    QVBoxLayout* getTopLeftUpperWidget();
-    QVBoxLayout* getTopLeftLowerWidget();
-    QVBoxLayout* getTopRightWidget();
-    QVBoxLayout* getBotLeftWidget();
-    QVBoxLayout* getBotRightWidget();
+    void saveWindowSettings();
+    void loadWindowSettings();
+
+    duint getSelectionVa();
 
     // Widget getters
     CPUSideBar* getSidebarWidget();
     CPUDisassembly* getDisasmWidget();
-    CPUDump* getDumpWidget();
+    DisassemblerGraphView* getGraphWidget();
+    CPUMultiDump* getDumpWidget();
     CPUStack* getStackWidget();
+    CPUInfoBox* getInfoBoxWidget();
+
+public slots:
+    void setDisasmFocus();
+    void setGraphFocus();
 
 protected:
     CPUSideBar* mSideBar;
     CPUDisassembly* mDisas;
-    CPUDump* mDump;
+    DisassemblerGraphView* mGraph;
+    MHDetachedWindow* mGraphWindow;
+    CPUMultiDump* mDump;
     CPUStack* mStack;
-    RegistersView* mGeneralRegs;
+    CPURegistersView* mGeneralRegs;
     CPUInfoBox* mInfo;
+    CPUArgumentWidget* mArgumentWidget;
+
+    int disasMode;
 
 private:
     Ui::CPUWidget* ui;
+    QByteArray mDisasmSidebarSplitterStatus;
+
+private slots:
+    void splitterMoved(int pos, int index);
+    void attachGraph(QWidget* widget);
+    void detachGraph();
 };
 
 #endif // CPUWIDGET_H

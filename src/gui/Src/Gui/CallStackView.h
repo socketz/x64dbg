@@ -2,6 +2,7 @@
 #define CALLSTACKVIEW_H
 
 #include "StdTable.h"
+class CommonActions;
 
 class CallStackView : public StdTable
 {
@@ -9,22 +10,34 @@ class CallStackView : public StdTable
 public:
     explicit CallStackView(StdTable* parent = 0);
     void setupContextMenu();
+    duint getSelectionVa();
 
-signals:
-    void showCpu();
+protected:
+    QString paintContent(QPainter* painter, dsint rowBase, int rowOffset, int col, int x, int y, int w, int h) override;
 
 protected slots:
     void updateCallStack();
     void contextMenuSlot(const QPoint pos);
-    void doubleClickedSlot();
     void followAddress();
     void followTo();
     void followFrom();
+    void showSuspectedCallStack();
 
 private:
-    QAction* mFollowAddress;
-    QAction* mFollowTo;
-    QAction* mFollowFrom;
+    enum
+    {
+        ColThread = 0,
+        ColAddress,
+        ColTo,
+        ColFrom,
+        ColSize,
+        ColComment,
+        ColParty
+    };
+
+    MenuBuilder* mMenuBuilder;
+    CommonActions* mCommonActions;
+    bool isSelectionValid();
 };
 
 #endif // CALLSTACKVIEW_H

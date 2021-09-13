@@ -13,12 +13,10 @@ public:
     explicit SourceViewerManager(QWidget* parent = 0);
 
 public slots:
-    void loadSourceFile(QString path, int line, int selection = 0);
+    void loadSourceFile(QString path, duint addr);
     void closeTab(int index);
     void closeAllTabs();
-
-signals:
-    void showCpu();
+    void dbgStateChanged(DBGSTATE state);
 
 private:
     QPushButton* mCloseAllTabs;
